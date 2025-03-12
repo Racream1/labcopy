@@ -508,10 +508,10 @@ function toggleViews(showResults) {
 }
 
 function copyExcel() {
-    const data = Array.from(document.querySelectorAll('#resultsBody td:nth-child(2)'))
+    const data = Array.from(document.querySelectorAll('#resultsBody td'))
                      .map(td => {
                          const content = td.textContent;
-                         return content === '-' ? '' : content.replace('.', ',');
+                         return content === '-' ? '' : content.replace('.', '.');
                      })
                      .join('\n');
     copyToClipboard(data, '✅ Dados copiados para Excel!');
