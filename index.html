@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>LabCopy v10.0</title>
+<title>LabCopy 1.0.0</title>
     <style>
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
@@ -141,15 +141,19 @@
             margin: 20px 0;
         }
 
-        .header-info {
-            text-align: center;
-            margin-bottom: 25px;
-        }
+		.header-info {
+			text-align: center;
+			margin-bottom: 25px;
+		}
 
-        .header-info h2 {
-            color: #2c3e50;
-            margin-bottom: 5px;
-        }
+		.header-info p, .header-info h2 {
+			margin: 5px 0;
+		}
+
+		.header-info strong {
+			font-size: 1rem;
+			color: #2c3e50;
+		}
 
         .header-info p {
             color: #7f8c8d;
@@ -199,17 +203,17 @@
     <div class="upload-box">
         <label class="custom-upload" id="uploadLabel">
             <div style="font-size: 24px;">📄</div>
-            Clique ou arraste o PDF aqui
+            Clique ou arraste o PDF do exame aqui
         </label>
         <input type="file" id="fileInput" accept=".pdf" hidden>
         <div id="error"></div>
     </div>
 
     <div id="resultContainer" class="hidden">
-        <div class="header-info">
-            <h2 id="pacienteNome">-</h2>
-            <p id="coletaData">-</p>
-        </div>
+<div class="header-info">
+    <p><strong>Nome paciente:</strong> <span id="pacienteNome">-</span></p>
+    <p><strong>Horário de coleta do exame:</strong> <span id="coletaData">-</span></p>
+</div>
         <div class="button-container">
             <button onclick="copyExcel()">📋 Excel</button>
             <button onclick="openChecklist()">📋 Evolução</button>
@@ -237,7 +241,7 @@
             </div>
         </div>
     </div>
-<div class="watermark">Desenvolvido por Marcelo Moura, 2025</div>
+<div class="watermark">Labcopy v1.0.0. Desenvolvido por Marcelo Moura, 2025</div>
 <script>
 const EXAMES = [
     'pH', 'pCO2', 'pO2', 'BE', 'HCO3', 'Saturação de O2', 'FIO2', 'P/F',
@@ -302,16 +306,18 @@ function handleDragOver(e) {
     document.getElementById('uploadLabel').style.borderColor = '#45a049';
 }
 
-async function processPDF(file) {
-    try {
-        const pdfData = await file.arrayBuffer();
-        const text = await parsePDF(pdfData);
-        const {results, missing} = processText(text);
-        
+async function processPDF(file, examDate) {
+	  try {
+		const pdfData = await file.arrayBuffer();
+		const text = await parsePDF(pdfData);
+		console.log("Texto extraído:", text);
+		
+		// Chamada da função agora que ela já está definida
+		const { results, missing } = processText(text);
+		showCultureNotification(text);
         currentResults = results;
-        showResults(results);
-        toggleViews(true);
-        
+		showResults(results);
+        toggleViews(true);     
         if (missing.length > 0) {
             showWarning(missing.slice(0, 5));
         }
@@ -448,6 +454,41 @@ function showResults(results) {
     });
 }
 
+function showCultureNotification(text, durationCulture = 30000, durationDefault = 10000) {
+  const cultureFound = text.toLowerCase().includes("cultura");
+  const notif = document.createElement('div');
+  notif.id = 'cultureNotification';
+  notif.style.position = 'fixed';
+  notif.style.top = '0';
+  notif.style.left = '0';
+  notif.style.width = '100%';
+  notif.style.padding = '10px';
+  notif.style.textAlign = 'center';
+  notif.style.fontWeight = 'bold';
+  notif.style.zIndex = '2000';
+  
+  if (cultureFound) {
+    // Fundo vermelho – alerta de culturas encontradas
+    notif.style.backgroundColor = '#f8d7da';
+    notif.style.color = '#721c24';
+    notif.textContent = "Existem culturas no PDF de exames, verifique cuidadosamente.";
+    setTimeout(() => {
+      notif.remove();
+    }, durationCulture);
+  } else {
+    // Fundo verde – exames identificados
+    notif.style.backgroundColor = '#d4edda';
+    notif.style.color = '#155724';
+    notif.textContent = "Exames identificados. Confira o PDF em caso de dúvidas.";
+    setTimeout(() => {
+      notif.remove();
+    }, durationDefault);
+  }
+  document.body.appendChild(notif);
+}
+
+
+
 function makeEditable(event) {
     const cell = event.target;
     const index = cell.dataset.index;
@@ -546,7 +587,7 @@ function copySelected() {
         return `${apelidosAtuais[index]} ${value}`;
     });
 
-    const dataCompleta = document.getElementById('coletaData').textContent;
+    const dataCompleta = document.getElementById('coletaData').textContent;7
     const apenasData = dataCompleta.split(' ')[0].trim();
 
     const finalText = `(${apenasData}): ${selectedValues.join(' / ')}`;
@@ -560,6 +601,8 @@ function closeModal() {
 
 function resetApp() {
     toggleViews(false);
+	const notif = document.getElementById('cultureNotification');
+	if (notif) notif.remove();
     document.getElementById('fileInput').value = '';
     document.getElementById('resultsBody').innerHTML = '';
     document.getElementById('pacienteNome').textContent = '-';
@@ -600,9 +643,7 @@ function showError(message) {
     setTimeout(() => errorDiv.textContent = '', 5000);
 }
 
-function showWarning(missing) {
-    showFeedback(`⚠️ Exames não encontrados: ${missing.join(', ')}`);
-}
+
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.min.js"></script>
