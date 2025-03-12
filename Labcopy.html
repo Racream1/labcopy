@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Analisador de Exames Médicos v3.0</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 20px;
+            background: #f8f9fa;
+        }
+
+        .upload-box {
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 30px;
+            text-align: center;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }
+
+        .custom-upload {
+            border: 2px dashed #4CAF50;
+            padding: 40px;
+            cursor: pointer;
+            border-radius: 8px;
+            color: #4CAF50;
+            font-size: 18px;
+            transition: all 0.3s;
+        }
+
+        .custom-upload:hover {
+            background: #f0fff4;
+            border-color: #45a049;
+        }
+
+        #resultContainer {
+            max-width: 800px;
+            margin: 30px auto;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        th, td {
+            border: 1px solid #dee2e6;
+            padding: 12px 15px;
+            text-align: left;
+        }
+
+        th {
+            background: #e9ecef;
+        }
+
+        .button-container {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin: 25px 0;
+        }
+
+        button {
+            padding: 12px 25px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        #checklist {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .header-info {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        #error {
+            color: #dc3545;
+            margin-top: 15px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="upload-box">
+        <label class="custom-upload" id="uploadLabel">
+            📄 Clique ou arraste o PDF aqui
+        </label>
+        <input type="file" id="fileInput" accept=".pdf" hidden>
+        <div id="error"></div>
+    </div>
+
+    <div id="resultContainer" class="hidden">
+        <div class="header-info">
+            <h2 id="patientName">-</h2>
+            <p id="collectionDate">-</p>
+        </div>
+        <div class="button-container">
+            <button onclick="copyExcel()">📋 Excel</button>
+            <button onclick="openChecklist()">📋 Evolução</button>
+            <button onclick="resetApp()" style="background: #6c757d">🔄 Nova Análise</button>
+        </div>
+        <table>
+            <thead>
+                <tr><th>Exame</th><th>Resultado</th></tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+        </table>
+    </div>
+
+    <div id="copyModal" class="modal">
+        <div class="modal-content">
+            <h3 style="margin: 0 0 15px 0">Selecione os exames</h3>
+            <div id="checklist"></div>
+            <div class="button-container">
+                <button onclick="copySelected()">Copiar</button>
+                <button onclick="closeModal()" style="background: #6c757d">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+const APELIDOS = [
+    'pH', 'pCO2', 'pO2', 'BE', 'HCO3', 'satO2', 'FIO2', 'P/F',
+    'Lactato', 'Hb', 'Ht', 'Leucócitos', 'Bastões', 'Meta', 'Mielo',
+    'Plaquetas', 'Uréia', 'Creatinina', 'PCR', 'Na', 'K', 'Cl', 'Mg',
+    'Ca', 'P', 'TGO', 'TGP', 'Bilirrubina total', 'BD', 'BI', 'TAP',
+    'RNI', 'TTPa', 'Relação', 'CPK', 'PT', 'Albumina', 'FA', 'GGT',
+    'Amilase', 'Lipase', 'Fibrinogênio', 'CKMB', 'Troponina', 'Vancomicina',
+    'Triglicérides', 'DHL'
+];
+
+const EXAMES = [
+    'pH', 'pCO2', 'pO2', 'BE', 'HCO3', 'Saturação de O2', 'FIO2', 'P/F',
+    'Lactato', 'Hemoglobina', 'Hematócrito', 'Leucócitos', 'Bastonetes',
+    'Metamielócitos', 'Mielócitos', 'Plaquetas', 'Ur[eé]ia',
+    'Creatinina', 'Proteína C Reativa', 'S[óo]dio',
+    'Pot[áa]ssio', 'Cloretos', 'Magn[ée]sio',
+    'C[áa]lcio I[ôo]nico', 'F[óo]sforo', 'TGO \(AST\)',
+    'TGP \(ALT\)', 'Bilirrubina total', 'Bilirrubina Direta',
+    'Bilirrubina Indireta', 'Atividade \(TAP\)', 'RNI', 'TTPa',
+    'Rela..o \(TTPa\)', 'CPK', 'Proteínas Totais',
+    'Albumina', 'Fosfatase Alcalina', 'Gama GT',
+    'Amilase', 'Lipase', 'Fibrinogênio', 'CKMB',
+    'Troponina', 'Vancomicina', 'Triglic[ée]rides', 'DHL'
+];
+
+let currentResults = {};
+
+document.addEventListener('DOMContentLoaded', initApp);
+
+function initApp() {
+    const uploadLabel = document.getElementById('uploadLabel');
+    const fileInput = document.getElementById('fileInput');
+
+    // Eventos de upload
+    uploadLabel.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', handleFileUpload);
+
+    // Drag and drop
+    document.addEventListener('dragover', handleDragOver);
+    document.addEventListener('drop', handleFileDrop);
+}
+
+async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    await processPDF(file);
+}
+
+async function handleFileDrop(e) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') {
+        await processPDF(file);
+    }
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    document.getElementById('uploadLabel').style.borderColor = '#45a049';
+}
+
+async function processPDF(file) {
+    try {
+        const pdfData = await file.arrayBuffer();
+        const text = await parsePDF(pdfData);
+        const {results, missing} = processText(text);
+        
+        currentResults = results;
+        showResults(results);
+        toggleViews(true);
+        
+        if (missing.length > 0) {
+            showWarning(missing.slice(0, 5));
+        }
+    } catch (error) {
+        showError(`Erro: ${error.message}`);
+    }
+}
+
+async function parsePDF(data) {
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 
+        'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.worker.min.js';
+
+    const pdf = await pdfjsLib.getDocument({data}).promise;
+    let text = '';
+    
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(item => item.str + ' ').join('');
+    }
+    
+    return text
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .replace(/(\d)\s+(\d)/g, '$1$2') // Corrigir espaços em números
+        .toUpperCase();
+}
+
+function processText(text) {
+    const results = {};
+    const missing = [];
+
+    // Extrair informações do paciente
+    const patientInfo = text.match(/SR\(A\):\s*([^|]+)/i) || text.match(/PACIENTE:\s*([^|]+)/i);
+    const dateInfo = text.match(/COLETADO\((\d{2}\/\d{2}\/\d{4})/i);
+
+    document.getElementById('patientName').textContent = patientInfo ? 
+        patientInfo[1].trim().replace(/\s+/g, ' ') : 'Não identificado';
+    document.getElementById('collectionDate').textContent = dateInfo ? 
+        `Coleta: ${dateInfo[1]}` : 'Data não encontrada';
+
+    // Processar exames
+    EXAMES.forEach((exame, index) => {
+        if (exame === 'P/F') return;
+
+        const regexPattern = new RegExp(
+            `${exame}\\s*[:]?\\s*([-]?\\d{1,3}(?:[.,]\\d+)?)\\s*([%]?)\\b`,
+            'i'
+        );
+
+        const match = text.match(regexPattern);
+        if (match && match[1]) {
+            results[EXAMES[index]] = formatValue(exame, match[1], match[2]);
+        } else {
+            missing.push(APELIDOS[index]);
+        }
+    });
+
+    // Calcular P/F
+    if (results['pO2'] && results['FIO2']) {
+        try {
+            const pO2 = parseNumber(results['pO2']);
+            const fio2 = parseNumber(results['FIO2']) / 100;
+            results['P/F'] = (pO2 / fio2).toLocaleString('pt-BR', {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1
+            });
+        } catch {
+            missing.push('P/F');
+        }
+    } else {
+        missing.push('P/F');
+    }
+
+    return {results, missing};
+}
+
+function formatValue(exame, value, unit) {
+    // Converter para formato numérico
+    let numericValue = value.replace('.', '').replace(',', '.');
+    
+    // Aplicar multiplicadores
+    if (['Plaquetas', 'Leucócitos'].includes(APELIDOS[EXAMES.indexOf(exame)])) {
+        numericValue = (parseFloat(numericValue) * 1000).toLocaleString('pt-BR');
+    } else {
+        numericValue = parseFloat(numericValue).toLocaleString('pt-BR', {
+            minimumFractionDigits: value.includes(',') ? 2 : 0,
+            maximumFractionDigits: 2
+        });
+    }
+
+    // Adicionar unidade quando necessário
+    const needsUnit = ['Saturação de O2', 'Hematócrito', 'FIO2'].includes(exame);
+    return numericValue + (needsUnit ? '%' : '');
+}
+
+function parseNumber(value) {
+    return parseFloat(
+        value.replace(/[^0-9,-]/g, '')
+            .replace(/\./g, '')
+            .replace(',', '.')
+    );
+}
+
+function showResults(results) {
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = EXAMES.map((exame, index) => `
+        <tr>
+            <td>${APELIDOS[index]}</td>
+            <td>${results[exame] || '-'}</td>
+        </tr>
+    `).join('');
+}
+
+function toggleViews(showResults) {
+    document.getElementById('resultContainer').classList.toggle('hidden', !showResults);
+    document.querySelector('.upload-box').classList.toggle('hidden', showResults);
+}
+
+function copyExcel() {
+    const data = Array.from(document.querySelectorAll('#resultsBody td:nth-child(2)'))
+                     .map(td => td.textContent.replace('.', ','))
+                     .join('\n');
+    copyToClipboard(data, '✅ Dados copiados para Excel!');
+}
+
+function openChecklist() {
+    const modal = document.getElementById('copyModal');
+    const checklist = document.getElementById('checklist');
+    
+    checklist.innerHTML = APELIDOS.map((apelido, index) => `
+        <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" value="${index}" checked>
+            ${apelido}
+        </label>
+    `).join('');
+    
+    modal.style.display = 'flex';
+}
+
+function copySelected() {
+    const selected = Array.from(document.querySelectorAll('#checklist input:checked'))
+                         .map(input => parseInt(input.value));
+
+    const selectedValues = selected.map(index => {
+        const value = document.querySelectorAll('#resultsBody td')[index * 2 + 1]?.textContent || '-';
+        return `${APELIDOS[index]} ${value}`;
+    });
+
+    const finalText = `(${document.getElementById('collectionDate').textContent.replace('Coleta: ', '')}): ${selectedValues.join(' / ')}`;
+    copyToClipboard(finalText, '✅ Dados copiados para evolução!');
+    closeModal();
+}
+
+function closeModal() {
+    document.getElementById('copyModal').style.display = 'none';
+}
+
+function resetApp() {
+    toggleViews(false);
+    document.getElementById('fileInput').value = '';
+    document.getElementById('resultsBody').innerHTML = '';
+    document.getElementById('patientName').textContent = '-';
+    document.getElementById('collectionDate').textContent = '-';
+    currentResults = {};
+}
+
+function copyToClipboard(text, successMessage) {
+    navigator.clipboard.writeText(text)
+        .then(() => showFeedback(successMessage))
+        .catch(() => showFeedback('❌ Erro ao copiar!'));
+}
+
+function showFeedback(message) {
+    const feedback = document.createElement('div');
+    feedback.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 25px;
+        background: #4CAF50;
+        color: white;
+        border-radius: 5px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        z-index: 1001;
+        animation: fadeInOut 2s ease;
+    `;
+    feedback.textContent = message;
+    document.body.appendChild(feedback);
+    
+    setTimeout(() => feedback.remove(), 2000);
+}
+
+function showError(message) {
+    const errorDiv = document.getElementById('error');
+    errorDiv.textContent = message;
+    setTimeout(() => errorDiv.textContent = '', 5000);
+}
+
+function showWarning(missing) {
+    showFeedback(`⚠️ Exames não encontrados: ${missing.join(', ')}`);
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.min.js"></script>
+</body>
+</html>
