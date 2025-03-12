@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>LabCopy v10.0</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 20px;
+            background: #f8f9fa;
+        }
+		
+        .watermark {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: rgba(0, 0, 0, 0.15);
+            font-size: 0.85em;
+            padding: 10px 0;
+            background: linear-gradient(transparent, rgba(255,255,255,0.8));
+            z-index: 100;
+            user-select: none;
+            pointer-events: none;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+		
+        .upload-box {
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 30px;
+            text-align: center;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }
+
+        .custom-upload {
+            border: 2px dashed #4CAF50;
+            padding: 30px;
+            cursor: pointer;
+            border-radius: 8px;
+            color: #4CAF50;
+            font-size: 16px;
+            transition: all 0.3s;
+            min-height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .custom-upload:hover {
+            background: #f8fff8;
+            border-color: #45a049;
+        }
+
+        #resultContainer {
+            max-width: 800px;
+            margin: 30px auto;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        th, td {
+            border: 1px solid #dee2e6;
+            padding: 12px 15px;
+            text-align: left;
+        }
+
+        td:nth-child(2) {
+            text-align: center;
+            font-weight: bold;
+        }
+
+        th {
+            background: #e9ecef;
+        }
+
+        .button-container {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin: 25px 0;
+        }
+
+        button {
+            padding: 12px 25px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button:hover {
+            background: #45a049;
+            transform: translateY(-1px);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+
+        #checklist {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .header-info {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .header-info h2 {
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .header-info p {
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+
+        #error {
+            color: #dc3545;
+            margin-top: 15px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .editable-apelido {
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .editable-apelido:hover {
+            background-color: #f8f9fa;
+            box-shadow: 0 0 0 2px #4CAF50;
+        }
+
+        .editable-apelido input {
+            width: 100%;
+            border: none;
+            padding: 5px;
+            font-size: 1em;
+            background: transparent;
+            outline: none;
+        }
+
+        .config-buttons {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="upload-box">
+        <label class="custom-upload" id="uploadLabel">
+            <div style="font-size: 24px;">📄</div>
+            Clique ou arraste o PDF aqui
+        </label>
+        <input type="file" id="fileInput" accept=".pdf" hidden>
+        <div id="error"></div>
+    </div>
+
+    <div id="resultContainer" class="hidden">
+        <div class="header-info">
+            <h2 id="pacienteNome">-</h2>
+            <p id="coletaData">-</p>
+        </div>
+        <div class="button-container">
+            <button onclick="copyExcel()">📋 Excel</button>
+            <button onclick="openChecklist()">📋 Evolução</button>
+            <button onclick="resetApp()" style="background: #6c757d">🔄 Nova Análise</button>
+        </div>
+        <table>
+            <thead>
+                <tr><th>Exame</th><th>Resultado</th></tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+        </table>
+        <div class="config-buttons">
+            <button onclick="saveCustomizations()" style="background: #2196F3">💾 Salvar Personalizações</button>
+            <button onclick="resetCustomizations()" style="background: #9E9E9E">⚙️ Restaurar Padrões</button>
+        </div>
+    </div>
+
+    <div id="copyModal" class="modal">
+        <div class="modal-content">
+            <h3 style="margin: 0 0 15px 0; color: #2c3e50;">Selecione os exames</h3>
+            <div id="checklist"></div>
+            <div class="button-container">
+                <button onclick="copySelected()">Copiar</button>
+                <button onclick="closeModal()" style="background: #6c757d">Cancelar</button>
+            </div>
+        </div>
+    </div>
+<div class="watermark">Desenvolvido por Marcelo Moura, 2025</div>
+<script>
+const EXAMES = [
+    'pH', 'pCO2', 'pO2', 'BE', 'HCO3', 'Saturação de O2', 'FIO2', 'P/F',
+    'Lactato', 'Hemoglobina', 'Hematócrito', 'Leucócitos', 'Bastonetes',
+    'Mielócitos', 'Metamielócitos', 'Plaquetas', 'DOSAGEM DE URÉIA',
+    'DOSAGEM DE CREATININA', 'DOSAGEM DE PROTEÍNA C REATIVA', 'DOSAGEM DE SÓDIO',
+    'DOSAGEM DE POTÁSSIO', 'DOSAGEM DE CLORETOS', 'DOSAGEM DE MAGNÉSIO',
+    'DOSAGEM DE CÁLCIO IÔNICO', 'DOSAGEM DE FÓSFORO', 'DOSAGEM DE TGO (AST)',
+    'DOSAGEM DE TGP (ALT)', 'Bilirrubina total', 'Bilirrubina Direta',
+    'Bilirrubina Indireta', 'Atividade', 'RNI', 'Tempo (TTPA)',
+    'Relação (Paciente/Normal)', 'DOSAGEM DE CPK', 'Proteínas Totais',
+    'Albumina', 'DOSAGEM DE FOSFATASE ALCALINA', 'DOSAGEM DE GAMA GT',
+    'Dosagem de Amilase', 'DOSAGEM DE LIPASE', 'FIBRINOG', 'CKMB',
+    'Troponina', 'DOSAGEM DE VANCOMICINA', 'DOSAGEM DE TRIGLICÉRIDES', 'DHL'
+];
+
+const APELIDOS_PADRAO = [
+    'pH', 'pCO2', 'pO2', 'BE', 'HCO3', 'satO2', 'FIO2', 'P/F',
+    'Lactato (mg/dL)', 'Hemoglobina', 'Hematocrito', 'Leucócitos', 'Bastões',
+    'Meta', 'Mielo', 'Plaquetas', 'Uréia', 'Creatinina', 'PCR', 'Sódio',
+    'Potássio', 'Cloreto', 'Magnésio', 'Calcio', 'Fosforo', 'TGO', 'TGP',
+    'Bilirrubina total', 'BD', 'BI', 'TAP', 'RNI', 'TTPa', 'Relação', 'CPK',
+    'Proteínas Totais', 'Albumina', 'Fosfatase Alcalina', 'GGT', 'Amilase',
+    'Lipase', 'Fibrinogênio', 'CKMB', 'Troponina', 'Vancocinemia', 'Triglicérides', 'DHL'
+];
+
+let currentResults = {};
+let apelidosAtuais = [...APELIDOS_PADRAO];
+
+document.addEventListener('DOMContentLoaded', () => {
+    initApp();
+    loadCustomizations();
+});
+
+function initApp() {
+    const uploadLabel = document.getElementById('uploadLabel');
+    const fileInput = document.getElementById('fileInput');
+
+    uploadLabel.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', handleFileUpload);
+
+    document.addEventListener('dragover', handleDragOver);
+    document.addEventListener('drop', handleFileDrop);
+}
+
+async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    await processPDF(file);
+}
+
+async function handleFileDrop(e) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') {
+        await processPDF(file);
+    }
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    document.getElementById('uploadLabel').style.borderColor = '#45a049';
+}
+
+async function processPDF(file) {
+    try {
+        const pdfData = await file.arrayBuffer();
+        const text = await parsePDF(pdfData);
+        const {results, missing} = processText(text);
+        
+        currentResults = results;
+        showResults(results);
+        toggleViews(true);
+        
+        if (missing.length > 0) {
+            showWarning(missing.slice(0, 5));
+        }
+    } catch (error) {
+        showError(`Erro: ${error.message}`);
+    }
+}
+
+async function parsePDF(data) {
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 
+        'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.worker.min.js';
+
+    const pdf = await pdfjsLib.getDocument({data}).promise;
+    let text = '';
+    
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(item => item.str).join('\n') + '\n';
+    }
+    
+    return text;
+}
+
+function processText(text) {
+    const nomeMatch = text.match(/Sr\(a\):\s*(.+)/i);
+    const pacienteNome = nomeMatch ? nomeMatch[1].trim() : "Não encontrado";
+    document.getElementById('pacienteNome').textContent = pacienteNome;
+
+    const dataMatch = text.match(/Coletado\(([^)]+)\)/i);
+    const coletaData = dataMatch ? dataMatch[1] : "Não encontrada";
+    document.getElementById('coletaData').textContent = coletaData;
+
+    const results = {};
+    const missing = [];
+    const normalizedText = text.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ');
+    
+    const examsToProcess = EXAMES.filter(e => e !== 'P/F');
+    examsToProcess.forEach(exame => {
+        const patterns = [
+            new RegExp(`${escapeRegex(exame)}\\s*[:]\\s*(-?\\s*[\\d.,]+%?)`, 'i'),
+            new RegExp(`${escapeRegex(exame)}.*?Resultado\\s*[:]?\\s*(-?\\s*[\\d.,]+%?)`, 'i'),
+            new RegExp(`${escapeRegex(exame)}\\s+(-?\\s*[\\d.,]+%?)`, 'i')
+        ];
+
+        let valor = '';
+        for (const pattern of patterns) {
+            const match = normalizedText.match(pattern);
+            if (match && match[1]) {
+                valor = match[1].trim().replace(/\s+/g, '');
+                break;
+            }
+        }
+
+        if (valor) {
+            results[exame] = formatValue(exame, valor);
+        } else {
+            missing.push(exame);
+        }
+    });
+
+    const copyCheck = [
+        { source: 'DOSAGEM DE CLORETOS', target: 'FIBRINOG' },
+        { source: 'DOSAGEM DE CREATININA', target: 'BE' },
+        { source: 'DOSAGEM DE LIPASE', target: 'FIBRINOG' },
+        { source: 'DOSAGEM DE CÁLCIO IÔNICO', target: 'FIBRINOG' }
+    ];
+
+    copyCheck.forEach(pair => {
+        if (results[pair.source] && results[pair.target] && 
+           results[pair.target] === results[pair.source]) {
+            delete results[pair.target];
+            missing.push(pair.target);
+        }
+    });
+
+    try {
+        if (results['pO2'] && results['FIO2']) {
+            const pO2 = parseFloat(results['pO2'].replace(/\./g, '').replace(',', '.'));
+            const fio2 = parseFloat(results['FIO2'].replace('%', '').replace(',', '.')) / 100;
+            results['P/F'] = (pO2 / fio2).toLocaleString('pt-BR', {maximumFractionDigits: 1});
+        } else {
+            missing.push('P/F');
+        }
+    } catch (e) {
+        missing.push('P/F');
+    }
+
+    return {results, missing};
+}
+
+function escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+}
+
+function formatValue(exame, value) {
+    const examesComPorcentagem = [
+        'Saturação de O2', 'Hematócrito', 'Bastonetes',
+        'Mielócitos', 'Metamielócitos', 'FIO2', 'Atividade'
+    ];
+
+    if (examesComPorcentagem.includes(exame)) {
+        const cleaned = value.replace(/[^-\d,]/g, '').replace(',', '.');
+        return `${cleaned}%`;
+    }
+
+    let cleanedValue = value
+        .replace(/[^-\d,]/g, '')
+        .replace(/\./g, '')
+        .replace(',', '.');
+
+    if (['Plaquetas', 'Leucócitos'].includes(exame)) {
+        const multiplied = parseFloat(cleanedValue) * 1000;
+        return multiplied.toLocaleString('pt-BR');
+    }
+
+    return parseFloat(cleanedValue).toLocaleString('pt-BR', {
+        minimumFractionDigits: value.includes(',') ? 2 : 0
+    });
+}
+
+function showResults(results) {
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = EXAMES.map((exame, index) => `
+        <tr>
+            <td class="editable-apelido" data-index="${index}">${apelidosAtuais[index]}</td>
+            <td>${results[exame] || '-'}</td>
+        </tr>
+    `).join('');
+    
+    document.querySelectorAll('.editable-apelido').forEach(cell => {
+        cell.addEventListener('click', makeEditable);
+    });
+}
+
+function makeEditable(event) {
+    const cell = event.target;
+    const index = cell.dataset.index;
+    const originalText = cell.textContent;
+    
+    const input = document.createElement('input');
+    input.value = originalText;
+    input.style.width = '100%';
+    
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    
+    const save = () => {
+        apelidosAtuais[index] = input.value.trim();
+        cell.textContent = apelidosAtuais[index];
+        cell.classList.add('editable-apelido');
+        cell.addEventListener('click', makeEditable);
+    };
+    
+    input.addEventListener('blur', save);
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') save();
+    });
+}
+
+function loadCustomizations() {
+    const saved = localStorage.getItem('apelidosPersonalizados');
+    if (saved) {
+        try {
+            apelidosAtuais = JSON.parse(saved);
+        } catch (e) {
+            console.error('Erro ao carregar personalizações:', e);
+            apelidosAtuais = [...APELIDOS_PADRAO];
+        }
+    }
+}
+
+function saveCustomizations() {
+    try {
+        localStorage.setItem('apelidosPersonalizados', JSON.stringify(apelidosAtuais));
+        showFeedback('✅ Personalizações salvas com sucesso!');
+    } catch (e) {
+        showError('Erro ao salvar personalizações');
+    }
+}
+
+function resetCustomizations() {
+    localStorage.removeItem('apelidosPersonalizados');
+    apelidosAtuais = [...APELIDOS_PADRAO];
+    showResults(currentResults);
+    showFeedback('⚙️ Configurações padrão restauradas!');
+}
+
+function toggleViews(showResults) {
+    document.getElementById('resultContainer').classList.toggle('hidden', !showResults);
+    document.querySelector('.upload-box').classList.toggle('hidden', showResults);
+}
+
+function copyExcel() {
+    const data = Array.from(document.querySelectorAll('#resultsBody td:nth-child(2)'))
+                     .map(td => {
+                         const content = td.textContent;
+                         return content === '-' ? '' : content.replace('.', ',');
+                     })
+                     .join('\n');
+    copyToClipboard(data, '✅ Dados copiados para Excel!');
+}
+
+function openChecklist() {
+    const modal = document.getElementById('copyModal');
+    const checklist = document.getElementById('checklist');
+    
+    checklist.innerHTML = EXAMES.map((exame, index) => {
+        const resultado = currentResults[exame];
+        if (resultado && resultado !== '-') {
+            return `
+                <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" value="${index}" checked>
+                    ${apelidosAtuais[index]}
+                </label>
+            `;
+        }
+        return '';
+    }).filter(html => html !== '').join('');
+    
+    modal.style.display = 'flex';
+}
+
+function copySelected() {
+    const selected = Array.from(document.querySelectorAll('#checklist input:checked'))
+                         .map(input => parseInt(input.value));
+
+    const selectedValues = selected.map(index => {
+        const value = document.querySelectorAll('#resultsBody td')[index * 2 + 1]?.textContent || '-';
+        return `${apelidosAtuais[index]} ${value}`;
+    });
+
+    const dataCompleta = document.getElementById('coletaData').textContent;
+    const apenasData = dataCompleta.split(' ')[0].trim();
+
+    const finalText = `(${apenasData}): ${selectedValues.join(' / ')}`;
+    copyToClipboard(finalText, '✅ Dados copiados para evolução!');
+    closeModal();
+}
+
+function closeModal() {
+    document.getElementById('copyModal').style.display = 'none';
+}
+
+function resetApp() {
+    toggleViews(false);
+    document.getElementById('fileInput').value = '';
+    document.getElementById('resultsBody').innerHTML = '';
+    document.getElementById('pacienteNome').textContent = '-';
+    document.getElementById('coletaData').textContent = '-';
+    currentResults = {};
+}
+
+function copyToClipboard(text, successMessage) {
+    navigator.clipboard.writeText(text)
+        .then(() => showFeedback(successMessage))
+        .catch(() => showFeedback('❌ Erro ao copiar!'));
+}
+
+function showFeedback(message) {
+    const feedback = document.createElement('div');
+    feedback.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 25px;
+        background: #4CAF50;
+        color: white;
+        border-radius: 5px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        z-index: 1001;
+        animation: fadeInOut 2s ease;
+    `;
+    feedback.textContent = message;
+    document.body.appendChild(feedback);
+    
+    setTimeout(() => feedback.remove(), 2000);
+}
+
+function showError(message) {
+    const errorDiv = document.getElementById('error');
+    errorDiv.textContent = message;
+    setTimeout(() => errorDiv.textContent = '', 5000);
+}
+
+function showWarning(missing) {
+    showFeedback(`⚠️ Exames não encontrados: ${missing.join(', ')}`);
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.min.js"></script>
+</body>
+</html>
