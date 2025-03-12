@@ -508,7 +508,7 @@ function toggleViews(showResults) {
 }
 
 function copyExcel() {
-    const data = Array.from(document.querySelectorAll('#resultsBody td'))
+    const data = Array.from(document.querySelectorAll('#resultsBody td:nth-child(2)'))
                      .map(td => {
                          const content = td.textContent;
                          return content === '-' ? '' : content.replace('.', '.');
