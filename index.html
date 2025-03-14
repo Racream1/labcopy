@@ -381,7 +381,8 @@ function processText(text) {
         { source: 'DOSAGEM DE CLORETOS', target: 'FIBRINOG' },
         { source: 'DOSAGEM DE CREATININA', target: 'BE' },
         { source: 'DOSAGEM DE LIPASE', target: 'FIBRINOG' },
-        { source: 'DOSAGEM DE CÁLCIO IÔNICO', target: 'FIBRINOG' }
+        { source: 'DOSAGEM DE CÁLCIO IÔNICO', target: 'FIBRINOG' },
+	{ source: 'DOSAGEM DE AMILASE', target: 'FIBRINOG' }
     ];
 
     copyCheck.forEach(pair => {
@@ -402,7 +403,7 @@ function processText(text) {
 	    if (fio2Value < 20) {
 	      results['P/F'] = "";
 	      // Retorna FIO2 sem o símbolo de "%" (opcionalmente, formata como inteiro)
-	      results['FIO2'] = fio2Value.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+	      results['FIO2'] = fio2Value.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + " L";
 	    } else {
 	      const pO2 = parseFloat(results['pO2'].replace(/\./g, '').replace(',', '.'));
 	      const fio2Normalized = fio2Value / 100;
