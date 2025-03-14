@@ -394,19 +394,25 @@ function processText(text) {
 
 	try {
 	  if (results['pO2'] && results['FIO2']) {
-	    // Se FIO2 não contém "%" então retorna ""
-	    if (!results['FIO2'].includes('%')) {
+	    // Remove o símbolo de "%" e formata a FIO2 para número
+	    let fio2Str = results['FIO2'];
+	    let fio2Value = parseFloat(fio2Str.replace('%', '').replace(',', '.'));
+	    
+	    // Se fio2 é menor que 20, P/F será vazio e FIO2 será apenas o número
+	    if (fio2Value < 20) {
 	      results['P/F'] = "";
+	      // Retorna FIO2 sem o símbolo de "%" (opcionalmente, formata como inteiro)
+	      results['FIO2'] = fio2Value.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 	    } else {
 	      const pO2 = parseFloat(results['pO2'].replace(/\./g, '').replace(',', '.'));
-	      const fio2 = parseFloat(results['FIO2'].replace('%', '').replace(',', '.')) / 100;
-	      results['P/F'] = (pO2 / fio2).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+	      const fio2Normalized = fio2Value / 100;
+	      results['P/F'] = (pO2 / fio2Normalized).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 	    }
 	  } else {
 	    missing.push('P/F');
 	  }
-	} catch (e) {
-	  missing.push('P/F');
+} catch (e) {
+  missing.push('P/F');
 }
 
     return {results, missing};
