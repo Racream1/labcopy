@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>LabCopy 1.0.0</title>
+<title>LabCopy 1.0.1</title>
     <style>
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
@@ -25,22 +25,26 @@
             font-family: 'Segoe UI', Arial, sans-serif;
         }
 		
-        .upload-box {
-            max-width: 800px;
-            margin: 50px auto;
-            padding: 30px;
-            text-align: center;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
-        }
+.upload-box {
+  /* Mantém as configurações originais que você deseja: */
+  max-width: 1000px;
+  margin: 50px auto;
+  padding: 30px;
+  text-align: center;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+
+  /* Adiciona as mesmas propriedades de fonte/cor usadas no download-box: */
+  font-family: 'Roboto', sans-serif;
+  color: #333;
+}
 
         .custom-upload {
             border: 2px dashed #4CAF50;
             padding: 30px;
             cursor: pointer;
             border-radius: 8px;
-            color: #4CAF50;
             font-size: 16px;
             transition: all 0.3s;
             min-height: 150px;
@@ -138,6 +142,7 @@
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 10px;
+			            justify-content: center;
             margin: 20px 0;
         }
 
@@ -197,17 +202,80 @@
             gap: 10px;
             justify-content: center;
         }
+		
+		.download-box {
+		  max-width: 600px;
+		  margin: 20px auto;
+		  padding: 30px;
+		  text-align: center;
+		  background: white;
+		  border-radius: 10px;
+		  box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+		  border: 2px dashed #4CAF50; /* mesmo estilo de borda do upload */
+		    /* Adiciona as mesmas propriedades de fonte/cor usadas no download-box: */
+  font-family: 'Roboto', sans-serif;
+  color: #333;
+		}
+
+		.download-box h3 {
+		  margin-top: 0;
+		  margin-bottom: 10px;
+		  font-size: 1.2rem;
+		  color: #333;
+		}
+
+		.download-box p {
+		  margin: 0 0 15px 0;
+		  color: #555;
+		  font-size: 0.95rem;
+		}
+
+		.btn-download {
+		  display: inline-block;
+		  background: #4CAF50;
+		  color: white;
+		  padding: 12px 25px;
+		  border-radius: 5px;
+		  text-decoration: none;
+		  font-size: 14px;
+		  transition: all 0.3s;
+		}
+
+		.btn-download:hover {
+		  background: #45a049;
+		  transform: translateY(-1px);
+		}
+
     </style>
 </head>
 <body>
     <div class="upload-box">
         <label class="custom-upload" id="uploadLabel">
             <div style="font-size: 24px;">📄</div>
-            Clique ou arraste o PDF do exame aqui
+          	  <h3>  Clique ou arraste o PDF do exame aqui</h3>
         </label>
         <input type="file" id="fileInput" accept=".pdf" hidden>
         <div id="error"></div>
     </div>
+	<div class="download-box">
+	  <h3>Baixar PDF Padrão</h3>
+	  <p>Faça o download de um modelo de PDF padrão para referência.</p>
+	  <a href="https://raw.githubusercontent.com/Racream1/labcopy/refs/heads/main/Excel_Padrao.xlsx"." download="Excel_Padrao.xlsx" class="btn-download">
+		Baixar PDF
+	  </a>
+	</div>
+	
+<!-- Segundo bloco: Bugs / Sugestões -->
+<div class="download-box">
+  <h2>Bugs / Sugestões</h2>
+  <p>Encontrou algum problema ou tem alguma ideia? Clique abaixo para contribuir.</p>
+  <a 
+    href="https://forms.gle/G8PzWGUufRL9o35SA"
+    target="_blank"
+    class="download-btn">
+    Clique aqui!
+  </a>
+</div>
 
     <div id="resultContainer" class="hidden">
 <div class="header-info">
@@ -233,7 +301,7 @@
 
     <div id="copyModal" class="modal">
         <div class="modal-content">
-            <h3 style="margin: 0 0 15px 0; color: #2c3e50;">Selecione os exames</h3>
+            <h3 style="margin: 0 0 15px 0; color: #2c3e50; text-align: center">Selecione os exames</h3>
             <div id="checklist"></div>
             <div class="button-container">
                 <button onclick="copySelected()">Copiar</button>
@@ -254,7 +322,7 @@ const EXAMES = [
     'Bilirrubina Indireta', 'Atividade', 'RNI', 'Tempo (TTPA)',
     'Relação (Paciente/Normal)', 'DOSAGEM DE CPK', 'Proteínas Totais',
     'Albumina', 'DOSAGEM DE FOSFATASE ALCALINA', 'DOSAGEM DE GAMA GT',
-    'Dosagem de Amilase', 'DOSAGEM DE LIPASE', 'FIBRINOG', 'CKMB',
+    'Dosagem de Amilase', 'DOSAGEM DE LIPASE', 'Fibrinogênio :', 'CKMB',
     'Troponina', 'DOSAGEM DE VANCOMICINA', 'DOSAGEM DE TRIGLICÉRIDES', 'DHL'
 ];
 
@@ -286,6 +354,42 @@ function initApp() {
     document.addEventListener('dragover', handleDragOver);
     document.addEventListener('drop', handleFileDrop);
 }
+
+function extractGasometriaData(text) {
+  // Extrai o bloco de gasometria que fica entre "GASOMETRIA" e "Notas: Os valores de pCO2 e pO2 devem ser interpretados"
+  const match = text.match(/GASOMETRIA([\s\S]*?)Notas: Os valores de pCO2 e pO2 devem ser interpretados/i);
+  if (!match) {
+    return { pH: "", BE: "" };
+  }
+  const block = match[1];
+
+  // Extrai o valor de pH
+  const phMatch = block.match(/pH\s*[:\-]?\s*([\d.,]+)/i);
+  // Extrai o valor de BE
+	const beMatch = block.match(/BE\s*[:]\s*(-?\s*\d+(?:[.,]\d+)?)/i);
+	if (beMatch) {
+	  let beValue = beMatch[1].replace(/\s/g, '');
+	  // Agora beValue deverá ser "-0,9" (por exemplo)
+	}
+  return {
+    pH: phMatch ? phMatch[1] : "",
+    BE: beMatch ? beMatch[1] : ""
+  };
+}
+
+// Função para extrair o valor de Leucócitos somente se estiver entre os blocos desejados
+function extractLeucocitosBlock(text) {
+  // Captura o bloco entre "SÉRIE LEUCOCITÁRIA" e "SÉRIE PLAQUETÁRIA"
+  const blockRegex = /SÉRIE LEUCOCITÁRIA([\s\S]*?)SÉRIE PLAQUETÁRIA/i;
+  const blockMatch = text.match(blockRegex);
+  if (!blockMatch) return "";
+  const blockText = blockMatch[1];
+  // Procura o valor de Leucócitos dentro desse bloco.
+  const leucRegex = /Leucócitos\s*[:\-]?\s*([\d.,]+)/i;
+  const leucMatch = blockText.match(leucRegex);
+  return (leucMatch && leucMatch[1]) ? leucMatch[1].trim() : "";
+}
+
 
 async function handleFileUpload(e) {
     const file = e.target.files[0];
@@ -349,49 +453,42 @@ function processText(text) {
     const coletaData = dataMatch ? dataMatch[1] : "Não encontrada";
     document.getElementById('coletaData').textContent = coletaData;
 
-    const results = {};
-    const missing = [];
-    const normalizedText = text.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ');
-    
-    const examsToProcess = EXAMES.filter(e => e !== 'P/F');
-    examsToProcess.forEach(exame => {
-        const patterns = [
-            new RegExp(`${escapeRegex(exame)}\\s*[:]\\s*(-?\\s*[\\d.,]+%?)`, 'i'),
-            new RegExp(`${escapeRegex(exame)}.*?Resultado\\s*[:]?\\s*(-?\\s*[\\d.,]+%?)`, 'i'),
-            new RegExp(`${escapeRegex(exame)}\\s+(-?\\s*[\\d.,]+%?)`, 'i')
-        ];
+  const results = {};
+  const missing = [];
+  const normalized = text.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ');
 
-        let valor = '';
-        for (const pattern of patterns) {
-            const match = normalizedText.match(pattern);
-            if (match && match[1]) {
-                valor = match[1].trim().replace(/\s+/g, '');
-                break;
-            }
+  // Extrai os dados de gasometria apenas uma vez
+  const gasData = extractGasometriaData(normalized);
+
+  EXAMES.forEach(exame => {
+    let valor = '';
+    if (exame === "pH") {
+      valor = gasData.pH;
+    } else if (exame === "BE") {
+      valor = gasData.BE;
+    } else if (exame === "Leucócitos") {
+      // Aqui você pode chamar sua função extractLeucocitosBlock se houver
+      valor = extractLeucocitosBlock(normalized);
+    } else {
+      const patterns = [
+        new RegExp(`${escapeRegex(exame)}\\s*[:]?\\s*(-?[\\d.,]+%?)`, 'i'),
+        new RegExp(`${escapeRegex(exame)}.*?Resultado\\s*[:]?\\s*(-?[\\d.,]+%?)`, 'i'),
+        new RegExp(`${escapeRegex(exame)}\\s+(-?[\\d.,]+%?)`, 'i')
+      ];
+      for (const pattern of patterns) {
+        const match = normalized.match(pattern);
+        if (match && match[1]) {
+          valor = match[1].trim().replace(/\s+/g, '');
+          break;
         }
-
-        if (valor) {
-            results[exame] = formatValue(exame, valor);
-        } else {
-            missing.push(exame);
-        }
-    });
-
-    const copyCheck = [
-        { source: 'DOSAGEM DE CLORETOS', target: 'FIBRINOG' },
-        { source: 'DOSAGEM DE CREATININA', target: 'BE' },
-        { source: 'DOSAGEM DE LIPASE', target: 'FIBRINOG' },
-        { source: 'DOSAGEM DE CÁLCIO IÔNICO', target: 'FIBRINOG' },
-	{ source: 'DOSAGEM DE AMILASE', target: 'FIBRINOG' }
-    ];
-
-    copyCheck.forEach(pair => {
-        if (results[pair.source] && results[pair.target] && 
-           results[pair.target] === results[pair.source]) {
-            delete results[pair.target];
-            missing.push(pair.target);
-        }
-    });
+      }
+    }
+    if (valor) {
+      results[exame] = formatValue(exame, valor);
+    } else {
+      missing.push(exame);
+    }
+  });
 
 	try {
 	  if (results['pO2'] && results['FIO2']) {
@@ -450,6 +547,9 @@ function formatValue(exame, value) {
 }
 
 function showResults(results) {
+  document.querySelectorAll('.download-box').forEach(box => {
+    box.style.display = 'none';
+  });
     const tbody = document.getElementById('resultsBody');
     tbody.innerHTML = EXAMES.map((exame, index) => `
         <tr>
@@ -558,6 +658,7 @@ function toggleViews(showResults) {
 }
 
 function copyExcel() {
+	const notif = document.getElementById('cultureNotification');
     const data = Array.from(document.querySelectorAll('#resultsBody td:nth-child(2)'))
                      .map(td => {
                          const content = td.textContent;
@@ -565,27 +666,77 @@ function copyExcel() {
                      })
                      .join('\n');
     copyToClipboard(data, '✅ Dados copiados para Excel!');
+	if (notif) notif.remove();
 }
 
 function openChecklist() {
-    const modal = document.getElementById('copyModal');
-    const checklist = document.getElementById('checklist');
-    
-    checklist.innerHTML = EXAMES.map((exame, index) => {
-        const resultado = currentResults[exame];
-        if (resultado && resultado !== '-') {
-            return `
-                <label style="display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" value="${index}" checked>
-                    ${apelidosAtuais[index]}
-                </label>
-            `;
-        }
-        return '';
-    }).filter(html => html !== '').join('');
-    
-    modal.style.display = 'flex';
+  const modal = document.getElementById('copyModal');
+  const checklist = document.getElementById('checklist');
+
+  // Limpa o conteúdo do checklist
+  checklist.innerHTML = '';
+
+  // Gera o checklist com base nos exames que têm resultado diferente de "-"
+  const checklistContent = EXAMES.map((exame, index) => {
+    const resultado = currentResults[exame];
+    if (resultado && resultado !== '-') {
+      return `
+        <label style="display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" value="${index}" checked>
+          ${apelidosAtuais[index]}
+        </label>
+      `;
+    }
+    return '';
+  }).filter(html => html !== '').join('');
+  checklist.innerHTML = checklistContent;
+
+  // Remove qualquer container de botões adicional já existente para evitar duplicações
+  const existingBtnContainer = document.getElementById('checklist-btn-container');
+  if (existingBtnContainer) {
+    existingBtnContainer.remove();
+  }
+
+  // Cria um container para os botões adicionais
+  const btnContainer = document.createElement('div');
+  btnContainer.id = 'checklist-btn-container';
+  btnContainer.style.display = 'flex';
+  btnContainer.style.justifyContent = 'center';
+  btnContainer.style.gap = '10px';
+  btnContainer.style.marginTop = '10px';
+
+  // Botão "Marcar todos exames"
+  const btnMarcarTodos = document.createElement('button');
+  btnMarcarTodos.textContent = 'Marcar todos exames';
+  btnMarcarTodos.style.padding = '6px 12px';
+  btnMarcarTodos.addEventListener('click', () => {
+    checklist.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+      checkbox.checked = true;
+    });
+  });
+
+  // Botão "Desmarcar todos exames"
+  const btnDesmarcarTodos = document.createElement('button');
+  btnDesmarcarTodos.textContent = 'Desmarcar todos exames';
+  btnDesmarcarTodos.style.padding = '6px 12px';
+  btnDesmarcarTodos.addEventListener('click', () => {
+    checklist.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+      checkbox.checked = false;
+    });
+  });
+
+  // Adiciona os botões ao container
+  btnContainer.appendChild(btnMarcarTodos);
+  btnContainer.appendChild(btnDesmarcarTodos);
+
+  // Insere o container logo após o checklist
+  checklist.insertAdjacentElement('afterend', btnContainer);
+
+  // Exibe o modal
+  modal.style.display = 'flex';
 }
+
+
 
 function copySelected() {
     const selected = Array.from(document.querySelectorAll('#checklist input:checked'))
@@ -601,6 +752,8 @@ function copySelected() {
 
     const finalText = `(${apenasData}): ${selectedValues.join(' / ')}`;
     copyToClipboard(finalText, '✅ Dados copiados para evolução!');
+	const notif = document.getElementById('cultureNotification');
+	if (notif) notif.remove();
     closeModal();
 }
 
