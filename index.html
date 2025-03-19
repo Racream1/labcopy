@@ -357,7 +357,7 @@ function initApp() {
 
 function extractGasometriaData(text) {
   // Extrai o bloco de gasometria que fica entre "GASOMETRIA" e "Notas: Os valores de pCO2 e pO2 devem ser interpretados"
-  const match = text.match(/GASOMETRIA([\s\S]*?)Notas: Os valores de pCO2 e pO2 devem ser interpretados/i);
+  const match = text.match(/GASOMETRIA([\s\S]*?)Métodos : Potenciometria automatizada/i);
   if (!match) {
     return { pH: "", BE: "" };
   }
