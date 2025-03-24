@@ -429,10 +429,10 @@ async function processPDF(file, examDate) {
 
 async function parsePDF(data) {
     const pdfjsLib = window['pdfjs-dist/build/pdf'];
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 
-        'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.worker.min.js';
+    // Define o caminho local para o worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/pdfjs/pdf.worker.min.js';
 
-    const pdf = await pdfjsLib.getDocument({data}).promise;
+    const pdf = await pdfjsLib.getDocument({ data }).promise;
     let text = '';
     
     for (let i = 1; i <= pdf.numPages; i++) {
@@ -816,6 +816,6 @@ function showError(message) {
 
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.min.js"></script>
+<script src="assets/pdfjs/pdf.min.js"></script>
 </body>
 </html>
