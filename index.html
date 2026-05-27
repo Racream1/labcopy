@@ -318,7 +318,17 @@ async function parsePDF(data) {
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        text += content.items.map(item => item.str).join('\n') + '\n';
+        const sortedItems = content.items
+            .filter(item => item.str.trim() !== '')
+            .sort((a, b) => {
+                const yA = a.transform[5];
+                const yB = b.transform[5];
+                if (Math.abs(yA - yB) < 2) {
+                    return a.transform[4] - b.transform[4];
+                }
+                return yB - yA;
+            });
+        text += sortedItems.map(item => item.str).join('\n') + '\n';
     }
     
     return text;
@@ -461,7 +471,6 @@ function escapeRegex(string) {
 }
 
 function formatValue(exame, value) {
-    // ... (função mantida como original)
     const examesComPorcentagem = ['Saturação de O2', 'Hematócrito', 'Bastonetes', 'Mielócitos', 'Metamielócitos', 'FIO2', 'Atividade'];
     if (examesComPorcentagem.includes(exame)) {
         return `${value.replace(/[^-\d,]/g, '').replace(',', '.')}%`;
@@ -486,12 +495,18 @@ function openChecklist() {
     const checklist = document.getElementById('checklist');
     const activeResults = pdfDataStore[activeTabIndex]?.results || {};
     
-    checklist.innerHTML = EXAMES.map((exame, index) => {
+    const checkboxes = EXAMES.map((exame, index) => {
         if (activeResults[exame] && activeResults[exame] !== '-') {
             return `<label><input type="checkbox" value="${index}" checked> ${apelidosAtuais[index]}</label>`;
         }
         return '';
     }).filter(Boolean).join('');
+
+    checklist.innerHTML =
+        `<div style="grid-column:1/-1;display:flex;gap:10px;justify-content:center;margin-bottom:8px">
+            <button onclick="document.querySelectorAll('#checklist input').forEach(c=>c.checked=true)" style="padding:6px 12px;font-size:12px">Marcar todos</button>
+            <button onclick="document.querySelectorAll('#checklist input').forEach(c=>c.checked=false)" style="padding:6px 12px;font-size:12px;background:#6c757d">Desmarcar todos</button>
+        </div>` + checkboxes;
 
     modal.style.display = 'flex';
 }
@@ -515,15 +530,77 @@ function copySelected() {
 
 function closeModal() { document.getElementById('copyModal').style.display = 'none'; }
 function copyToClipboard(text, msg) { navigator.clipboard.writeText(text).then(() => showFeedback(msg)).catch(() => showError('Erro ao copiar')); }
-function showError(msg) { /* ... */ }
-function showFeedback(msg) { /* ... */ }
-function makeEditable(event) { /* ... */ }
-function saveCustomizations() { /* ... */ }
-function loadCustomizations() { /* ... */ }
-function resetCustomizations() { /* ... */ }
-function showCultureNotification(text) { /* ... */ }
+function showError(msg) {
+    const el = document.getElementById('error');
+    el.textContent = msg;
+    el.style.color = '#dc3545';
+    setTimeout(() => el.textContent = '', 5000);
+}
 
-// As implementações das funções de UI (showError, showFeedback, etc.) são mantidas como no original para brevidade.
+function showFeedback(msg) {
+    const div = document.createElement('div');
+    div.textContent = msg;
+    Object.assign(div.style, { position:'fixed', top:'20px', left:'50%', transform:'translateX(-50%)', background:'#4CAF50', color:'#fff', padding:'12px 24px', borderRadius:'8px', zIndex:'9999', fontSize:'14px', boxShadow:'0 2px 10px rgba(0,0,0,0.2)' });
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 2000);
+}
+
+function makeEditable(event) {
+    const cell = event.currentTarget;
+    const index = cell.dataset.index;
+    const current = cell.textContent;
+    const input = document.createElement('input');
+    input.value = current;
+    input.style.cssText = 'width:100%;padding:4px;font-size:inherit;border:2px solid #4CAF50;border-radius:4px;';
+    cell.textContent = '';
+    cell.appendChild(input);
+    input.focus();
+    const save = () => {
+        const val = input.value.trim() || APELIDOS_PADRAO[index];
+        apelidosAtuais[index] = val;
+        cell.textContent = val;
+        cell.addEventListener('click', makeEditable);
+    };
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
+}
+
+function saveCustomizations() {
+    try {
+        localStorage.setItem('apelidosPersonalizados', JSON.stringify(apelidosAtuais));
+        showFeedback('Nomes salvos com sucesso!');
+    } catch (e) {
+        showError('Erro ao salvar: espaço insuficiente.');
+    }
+}
+
+function loadCustomizations() {
+    try {
+        const saved = localStorage.getItem('apelidosPersonalizados');
+        if (saved) apelidosAtuais = JSON.parse(saved);
+    } catch (e) {
+        apelidosAtuais = [...APELIDOS_PADRAO];
+    }
+}
+
+function resetCustomizations() {
+    localStorage.removeItem('apelidosPersonalizados');
+    apelidosAtuais = [...APELIDOS_PADRAO];
+    if (pdfDataStore.length > 0) renderActivePDFResults();
+    showFeedback('Nomes restaurados ao padrão!');
+}
+
+function showCultureNotification(text) {
+    const existing = document.getElementById('cultureNotif');
+    if (existing) existing.remove();
+    const hasCultura = /cultura/i.test(text);
+    const div = document.createElement('div');
+    div.id = 'cultureNotif';
+    div.textContent = hasCultura ? 'Existem culturas no PDF de exames. Verifique os resultados manualmente.' : 'LabCopy é um aplicativo que facilita a transcrição de exames laboratoriais.';
+    Object.assign(div.style, { position:'fixed', top:'10px', left:'50%', transform:'translateX(-50%)', padding:'10px 20px', borderRadius:'8px', color:'#fff', fontSize:'13px', zIndex:'9999', background: hasCultura ? '#dc3545' : '#4CAF50' });
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), hasCultura ? 30000 : 10000);
+}
 </script>
 </body>
 </html>
