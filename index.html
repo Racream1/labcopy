@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>LabCopy 1.1.0</title>
+<title>LabCopy 1.2.0</title>
 <style>
     body {
         font-family: 'Segoe UI', Arial, sans-serif;
@@ -232,23 +232,120 @@
         </div>
     </div>
 
-<div class="watermark">Labcopy v1.1.0. Desenvolvido por Marcelo Moura, 2025</div>
+    <div id="logModal" class="modal">
+        <div class="modal-content" style="max-width: 760px">
+            <h3 style="margin: 0 0 5px 0; color: #2c3e50; text-align: center">Log de exames não reconhecidos</h3>
+            <p style="text-align:center;font-size:12px;color:#6c757d;margin:0 0 15px 0">
+                Seções encontradas nos PDFs que o LabCopy não soube ler.
+            </p>
+            <div id="logTabela" style="max-height: 50vh; overflow: auto"></div>
+            <div class="button-container">
+                <button onclick="baixarLog()">⬇️ Baixar CSV</button>
+                <button onclick="limparLog()" style="background: #dc3545">🗑️ Limpar</button>
+                <button onclick="fecharLog()" style="background: #6c757d">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <button id="logBtn" onclick="abrirLog()" title="Exames não reconhecidos"
+            style="position:fixed;right:18px;bottom:34px;z-index:200;background:#6c757d;padding:10px 16px;font-size:13px">
+        📝 Log <span id="logBadge" style="display:none;background:#dc3545;border-radius:10px;padding:1px 7px;font-size:11px"></span>
+    </button>
+
+<div class="watermark">Labcopy v1.2.0. Desenvolvido por Marcelo Moura, 2025</div>
 
 <script src="assets/pdfjs/pdf.min.js"></script>
 <script>
+/* =========================================================================
+   LabCopy 1.2.0 — extração por SEÇÃO.
+   A versão anterior varria o documento inteiro com uma regex por exame. Isso
+   quebrava de três jeitos, todos confirmados em 189 laudos reais do HUGO:
+     1. o quadro "Evolução do paciente" (valores de coletas ANTERIORES) casava
+        antes do resultado real -> Hb/Ht/Plaquetas de outro dia, sem aviso;
+     2. gasometria arterial e venosa se misturavam no mesmo pedido;
+     3. "14.0 mg/dL" virava 140 (o ponto era apagado como separador de milhar).
+   Agora o texto é fatiado por cabeçalho, cada exame só é procurado dentro da
+   sua própria seção, e o que sobra vai para o log de não reconhecidos.
+   ========================================================================= */
+
 // --- CONFIGURAÇÕES GLOBAIS ---
+// ATENÇÃO: a ordem e a quantidade destas duas listas são contrato com a
+// planilha (o botão Excel copia uma linha por item, na ordem). Não inserir
+// nem remover itens no meio — exame novo vai para o log, não para a tabela.
 const EXAMES = ['pH', 'pCO2', 'pO2', 'BE', 'HCO3', 'Saturação de O2', 'FIO2', 'P/F', 'Lactato', 'Hemoglobina', 'Hematócrito', 'Leucócitos', 'Bastonetes', 'Mielócitos', 'Metamielócitos', 'Plaquetas', 'DOSAGEM DE URÉIA', 'DOSAGEM DE CREATININA', 'DOSAGEM DE PROTEÍNA C REATIVA', 'DOSAGEM DE SÓDIO', 'DOSAGEM DE POTÁSSIO', 'DOSAGEM DE CLORETOS', 'DOSAGEM DE MAGNÉSIO', 'DOSAGEM DE CÁLCIO IÔNICO', 'DOSAGEM DE FÓSFORO', 'DOSAGEM DE TGO (AST)', 'DOSAGEM DE TGP (ALT)', 'Bilirrubina total', 'Bilirrubina Direta', 'Bilirrubina Indireta', 'Atividade', 'RNI', 'Tempo (TTPA)', 'Relação (Paciente/Normal)', 'DOSAGEM DE CPK', 'Proteínas Totais', 'Albumina', 'DOSAGEM DE FOSFATASE ALCALINA', 'DOSAGEM DE GAMA GT', 'Dosagem de Amilase', 'DOSAGEM DE LIPASE', 'Fibrinogênio :', 'CKMB', 'Troponina', 'DOSAGEM DE VANCOMICINA', 'DOSAGEM DE TRIGLICÉRIDES', 'DHL'];
 const APELIDOS_PADRAO = ['pH', 'pCO2', 'pO2', 'BE', 'HCO3', 'satO2', 'FIO2', 'P/F', 'Lactato (mg/dL)', 'Hemoglobina', 'Hematocrito', 'Leucócitos', 'Bastões', 'Meta', 'Mielo', 'Plaquetas', 'Uréia', 'Creatinina', 'PCR', 'Sódio', 'Potássio', 'Cloreto', 'Magnésio', 'Calcio', 'Fosforo', 'TGO', 'TGP', 'Bilirrubina total', 'BD', 'BI', 'TAP', 'RNI', 'TTPa', 'Relação', 'CPK', 'Proteínas Totais', 'Albumina', 'Fosfatase Alcalina', 'GGT', 'Amilase', 'Lipase', 'Fibrinogênio', 'CKMB', 'Troponina', 'Vancocinemia', 'Triglicérides', 'DHL'];
+
+// Percentuais ganham "%" no fim. Continua igual à v1.1, só que agora o decimal
+// sai com vírgula como no resto da tabela (antes só estes saíam com ponto).
+const EXAMES_PORCENTAGEM = ['Saturação de O2', 'Hematócrito', 'Bastonetes', 'Mielócitos', 'Metamielócitos', 'FIO2', 'Atividade'];
+// Contagens que o laudo dá em x10³ e a planilha quer em valor absoluto.
+const EXAMES_MILHAR = ['Plaquetas', 'Leucócitos'];
+
+// "DOSAGEM DE X" -> id na lista acima. Cabeçalho fora deste mapa vai para o log.
+const MAPA_DOSAGEM = {
+    'URÉIA': 'DOSAGEM DE URÉIA', 'UREIA': 'DOSAGEM DE URÉIA',
+    'CREATININA': 'DOSAGEM DE CREATININA',
+    'PROTEÍNA C REATIVA': 'DOSAGEM DE PROTEÍNA C REATIVA', 'PROTEINA C REATIVA': 'DOSAGEM DE PROTEÍNA C REATIVA',
+    'SÓDIO': 'DOSAGEM DE SÓDIO', 'SODIO': 'DOSAGEM DE SÓDIO',
+    'POTÁSSIO': 'DOSAGEM DE POTÁSSIO', 'POTASSIO': 'DOSAGEM DE POTÁSSIO',
+    'CLORETOS': 'DOSAGEM DE CLORETOS', 'CLORETO': 'DOSAGEM DE CLORETOS',
+    'MAGNÉSIO': 'DOSAGEM DE MAGNÉSIO', 'MAGNESIO': 'DOSAGEM DE MAGNÉSIO',
+    'CÁLCIO IÔNICO': 'DOSAGEM DE CÁLCIO IÔNICO', 'CALCIO IONICO': 'DOSAGEM DE CÁLCIO IÔNICO',
+    'FÓSFORO': 'DOSAGEM DE FÓSFORO', 'FOSFORO': 'DOSAGEM DE FÓSFORO',
+    'TGO (AST)': 'DOSAGEM DE TGO (AST)', 'TGP (ALT)': 'DOSAGEM DE TGP (ALT)',
+    'CPK': 'DOSAGEM DE CPK',
+    'FOSFATASE ALCALINA': 'DOSAGEM DE FOSFATASE ALCALINA',
+    'GAMA GT': 'DOSAGEM DE GAMA GT', 'GAMA-GT': 'DOSAGEM DE GAMA GT',
+    'AMILASE': 'Dosagem de Amilase', 'LIPASE': 'DOSAGEM DE LIPASE',
+    'VANCOMICINA': 'DOSAGEM DE VANCOMICINA',
+    'TRIGLICÉRIDES': 'DOSAGEM DE TRIGLICÉRIDES', 'TRIGLICERIDES': 'DOSAGEM DE TRIGLICÉRIDES',
+    'DESIDROGENASE LÁCTICA': 'DHL', 'DESIDROGENASE LACTICA': 'DHL',
+    'CKMB': 'CKMB', 'CK-MB': 'CKMB',
+    // laudos avulsos: o hemograma não veio, veio só o analito
+    'HEMOGLOBINA': 'Hemoglobina',
+    'LACTATO ARTERIAL': 'Lactato', 'LACTATO': 'Lactato',
+    'TROPONINA I': 'Troponina', 'TROPONINA': 'Troponina',
+    'ALBUMINA': 'Albumina',
+};
+
+// Cabeçalhos de seção. Tudo em CAIXA ALTA no laudo, o que os separa do corpo.
+const RE_SECAO = new RegExp(
+    '(GASOMETRIA ARTERIAL|GASOMETRIA VENOSA|HEMOGRAMA[A-ZÀ-Ü ]*|CONTAGEM DE [A-ZÀ-Ü ]+|' +
+    'DETERMINA[ÇC][ÃA]O D[OEA] [A-ZÀ-Ü ]+|TEMPO DE [A-ZÀ-Ü ]+|FIBRINOG[ÊE]NIO|' +
+    'PROTE[ÍI]NAS TOTAIS[A-ZÀ-Ü ]*|ELETROFORESE DE PROTE[ÍI]NAS[A-ZÀ-Ü ]*|' +
+    'DESIDROGENASE L[ÁA]CTICA|DOSAGEM DE [A-ZÀ-Ü0-9()\\-/ ]+|' +
+    'ELEMENTOS ANORMAIS[A-ZÀ-Ü/ ]*\\(EAS\\)|PESQUISA [A-ZÀ-Ü ]+|CULTURA [A-ZÀ-Ü\\- ]+|' +
+    'CULTURA DE VIGIL[ÂA]NCIA[A-ZÀ-Ü\\- ]*|HEMOCULTURA[A-ZÀ-Ü ]*|BACTERIOSC[ÓO]PICO|' +
+    'PAINEL MOLECULAR [A-ZÀ-Ü ]+|CITOL[ÓO]GICO EM L[ÍI]QUIDOS|' +
+    'CONCENTRA[ÇC][ÃA]O INIBIT[ÓO]RIA M[ÍI]NIMA[A-ZÀ-Ü0-9\\- ]*|' +
+    'TESTE MOLECULAR [A-ZÀ-Ü0-9()\\- ]+|SARS-COV-2 RAPID ANTIGEN TEST[A-ZÀ-Ü0-9()]*)', 'g');
+
+// Sufixos que o laudo cola no cabeçalho e não fazem parte do nome do exame.
+const RE_SUJEIRA_HEADER = /\s+(TLR|VALOR(ES)? DE REFER.*|VALORES ABSOLUTOS.*)$/i;
+
+// O cabeçalho é seguido, na mesma linha, de "Valores de Referência". Como a
+// captura só aceita CAIXA ALTA, ela para no meio da palavra e leva junto a
+// inicial: "DOSAGEM DE HEMOGLOBINA V". Uma letra solta no fim nunca é nome de
+// exame — exceto quando é o próprio nome ("TROPONINA I"), e aí a inicial do
+// "Valores" vem depois dela e é a que cai fora.
+function limparHeader(h) {
+    return h.replace(/\s+/g, ' ').trim()
+            .replace(/\s+[A-ZÀ-Ü]$/, '')
+            .replace(RE_SUJEIRA_HEADER, '')
+            .trim();
+}
 
 // --- ESTADO DA APLICAÇÃO ---
 let apelidosAtuais = [...APELIDOS_PADRAO];
 let pdfDataStore = [];
 let activeTabIndex = 0;
+const CHAVE_LOG = 'labcopy_log_naoreconhecidos';
 
 // --- INICIALIZAÇÃO ---
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
     loadCustomizations();
+    atualizarBadgeLog();
 });
 
 function initApp() {
@@ -280,9 +377,9 @@ async function handleFiles(files) {
         showError("Nenhum arquivo PDF válido selecionado.");
         return;
     }
-    
+
     document.getElementById('uploadLabel').innerHTML = "<h3>Processando PDFs...</h3>";
-    
+
     pdfDataStore = [];
     for (const file of pdfFiles) {
         const processedData = await processPDF(file);
@@ -292,29 +389,30 @@ async function handleFiles(files) {
     pdfDataStore.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     activeTabIndex = 0;
     renderUI();
+    atualizarBadgeLog();
 }
 
 async function processPDF(file) {
     try {
         const pdfData = await file.arrayBuffer();
         const text = await parsePDF(pdfData);
-        showCultureNotification(text); 
+        showCultureNotification(text);
         const processedText = processText(text);
+        registrarLog(file.name, processedText);
         return { name: file.name, ...processedText };
     } catch (error) {
         showError(`Erro ao processar ${file.name}: ${error.message}`);
-        return { name: file.name, results: {}, pacienteNome: "Erro", coletaData: "Erro" };
+        return { name: file.name, results: {}, pacienteNome: "Erro", coletaData: "Erro", avisos: [], secoes: [] };
     }
 }
 
 async function parsePDF(data) {
     const pdfjsLib = window['pdfjs-dist/build/pdf'];
-    // Define o caminho local para o worker
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/pdfjs/pdf.worker.min.js';
 
     const pdf = await pdfjsLib.getDocument({ data }).promise;
     let text = '';
-    
+
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
@@ -330,8 +428,176 @@ async function parsePDF(data) {
             });
         text += sortedItems.map(item => item.str).join('\n') + '\n';
     }
-    
+
     return text;
+}
+
+// --- NÚMEROS ---------------------------------------------------------------
+// O laudo alterna os dois formatos, às vezes no mesmo PDF ("Lactato : 14.0" e
+// "Lactato : 6,0"). Um ponto com 3 dígitos é milhar; com 1-2, decimal gringo.
+function normNum(s) {
+    s = String(s).trim().replace(/\s+/g, '');
+    // resultado censurado: "< 20 U/L", "< 5,0 mg/L" (abaixo do limite do ensaio)
+    const op = (s.match(/^[<>]/) || [''])[0];
+    if (op) s = s.slice(1);
+    if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) return op + s.replace(/\./g, '');   // 23.216 -> 23216
+    if (/^-?\d+\.\d+$/.test(s)) return op + s.replace('.', ',');             // 14.0   -> 14,0
+    return op + s;
+}
+
+function fmtMilhar(s) {
+    const op = (String(s).match(/^[<>]/) || [''])[0];
+    const n = parseInt(String(s).replace(/\D/g, ''), 10);
+    return isNaN(n) ? s : op + n.toLocaleString('pt-BR');
+}
+
+function paraFloat(s) {
+    return parseFloat(String(s).replace(/[<>]/g, '').replace(/\./g, '').replace(',', '.'));
+}
+
+// Formata para exibição/cópia. Preserva as casas decimais que o laudo trouxe —
+// nada de "9,3" virar "9,30" nem de "14.0" virar 140.
+function formatValue(exame, valorBruto) {
+    let v = normNum(valorBruto);
+    if (EXAMES_MILHAR.includes(exame)) return fmtMilhar(v);
+    if (EXAMES_PORCENTAGEM.includes(exame)) return v.replace('%', '') + '%';
+    return v;
+}
+
+// --- EXTRAÇÃO --------------------------------------------------------------
+function pegar(corpo, padrao) {
+    const m = corpo.match(padrao);
+    return (m && m[1]) ? m[1].trim().replace(/\s+/g, '') : '';
+}
+
+// Número do laudo. Duas manhas do formato: o sinal negativo vem separado por
+// espaço ("BE : - 8,4") e o resultado pode vir censurado ("Resultado: < 5,0").
+const N = '([<>]?\\s*-?\\s*\\d[\\d.]*(?:,\\d+)?)';
+
+// O BE tem ainda uma terceira forma: "BE : - -1,0" — a coluna imprime o traço
+// e o valor repete o sinal. Nos 189 laudos da base: 59x "N", 34x "- N",
+// 28x "- -N", e nenhum positivo com traço. Logo, traço presente = negativo.
+const N_SINAL = '((?:-\\s*){0,2}\\d[\\d.]*(?:,\\d+)?)';
+function numSinal(s) {
+    s = String(s || '').replace(/\s+/g, '');
+    return s.startsWith('-') ? '-' + s.replace(/^-+/, '') : s;
+}
+
+// "Plaquetas: 175 x10~3/uL   175000 uL" -> 175000 (a coluna em uL, absoluta).
+const RE_ABSOLUTO = (rotulo) =>
+    new RegExp(`${rotulo}\\s*:\\s*[\\d.,]+\\s*x10[^\\s]*\\s+([\\d.]+)\\s*uL`, 'i');
+
+// Corta o quadro "Evolução do paciente": são valores de coletas ANTERIORES,
+// com os mesmos rótulos do resultado atual. Sem este corte, "Hemoglobina 14,4"
+// da evolução sobrescreve o "Resultado: 9,8" da coleta de hoje.
+function limparCorpo(corpo) {
+    return corpo.split(/Evolu[çc][ãa]o\s+do\s+paciente/i)[0];
+}
+
+// Cabeçalho reconhecido que legitimamente não vira linha da tabela (cultura,
+// urina, sorologia): resultado é texto. Não é erro — não deve poluir o log.
+const SECOES_SEM_LINHA = /^(CULTURA|HEMOCULTURA|BACTERIOSC|ELEMENTOS ANORMAIS|PESQUISA|PAINEL MOLECULAR|CITOL[ÓO]GICO|CONCENTRA[ÇC][ÃA]O INIBIT|TESTE MOLECULAR|SARS-COV-2|ELETROFORESE)/i;
+
+function parseSecao(header, corpo) {
+    const h = header.toUpperCase();
+    const val = {};
+    let tipo = 'analito';   // vira 'desconhecida' se nenhum ramo reconhecer
+    corpo = limparCorpo(corpo);
+
+    if (h.startsWith('GASOMETRIA VENOSA')) {
+        // Lida, mas NÃO preenche as linhas arteriais. Vira aviso na tela.
+        return { val: {}, tipo: 'venosa' };
+    }
+    // Cultura, urina, sorologia, painel molecular: resultado é texto, não tem
+    // linha na planilha. Reconhecidas de propósito, para não poluírem o log.
+    if (SECOES_SEM_LINHA.test(h)) return { val: {}, tipo: 'ignorada' };
+    if (h.startsWith('GASOMETRIA')) {
+        val['pH'] = pegar(corpo, new RegExp(`pH\\s*:?\\s*${N}`, 'i'));
+        val['pCO2'] = pegar(corpo, new RegExp(`pCO2\\s*:?\\s*${N}`, 'i'));
+        val['pO2'] = pegar(corpo, new RegExp(`pO2\\s*:?\\s*${N}`, 'i'));
+        val['BE'] = numSinal(pegar(corpo, new RegExp(`\\bBE\\s*:?\\s*${N_SINAL}`, 'i')));
+        val['HCO3'] = pegar(corpo, new RegExp(`HCO3\\s*:?\\s*${N}`, 'i'));
+        val['Saturação de O2'] = pegar(corpo, new RegExp(`Satura[çc][ãa]o de O2\\s*:?\\s*${N}`, 'i'));
+        val['Lactato'] = pegar(corpo, new RegExp(`Lactato\\s*:?\\s*${N}`, 'i'));
+        val['FIO2'] = pegar(corpo, new RegExp(`FiO2\\s*:?\\s*${N}`, 'i'));
+    } else if (h.startsWith('HEMOGRAMA')) {
+        val['Hemoglobina'] = pegar(corpo, new RegExp(`Hemoglobina\\s*:?\\s*${N}`, 'i'));
+        val['Hematócrito'] = pegar(corpo, new RegExp(`Hemat[óo]crito\\s*:?\\s*${N}`, 'i'));
+        // Coluna absoluta ("23,22 x10~3/uL  23.216 uL") — mais exata que x1000.
+        // Os dois-pontos são obrigatórios: sem eles o "PLAQUETAS" do título
+        // "HEMOGRAMA COM PLAQUETAS" casa primeiro e arrasta o valor dos
+        // leucócitos, que é o próximo "x10.../uL" do texto.
+        val['Leucócitos'] = pegar(corpo, RE_ABSOLUTO('Leuc[óo]citos'))
+            || pegar(corpo, new RegExp(`Leuc[óo]citos\\s*:\\s*${N}`, 'i'));
+        val['Plaquetas'] = pegar(corpo, RE_ABSOLUTO('Plaquetas'))
+            || pegar(corpo, new RegExp(`Plaquetas\\s*:\\s*${N}`, 'i'));
+        val['Bastonetes'] = pegar(corpo, new RegExp(`Bastonetes\\s*:?\\s*${N}`, 'i'));
+        val['Mielócitos'] = pegar(corpo, new RegExp(`Miel[óo]citos\\s*:?\\s*${N}`, 'i'));
+        val['Metamielócitos'] = pegar(corpo, new RegExp(`Metamiel[óo]citos\\s*:?\\s*${N}`, 'i'));
+    } else if (h.startsWith('CONTAGEM DE PLAQUETAS')) {
+        val['Plaquetas'] = pegar(corpo, /Plaquetas\s*:?.*?x10[^\s]*\s+([\d.]+)\s*uL/i)
+            || pegar(corpo, new RegExp(`Resultado\\s*:?\\s*${N}`, 'i'));
+    } else if (h.startsWith('CONTAGEM DE LEUC')) {
+        val['Leucócitos'] = pegar(corpo, /Leuc[óo]citos\s*:?.*?x10[^\s]*\s+([\d.]+)\s*uL/i)
+            || pegar(corpo, new RegExp(`Resultado\\s*:?\\s*${N}`, 'i'));
+    } else if (/^DETERMINA[ÇC][ÃA]O D[OEA] HEMAT/.test(h)) {
+        val['Hematócrito'] = pegar(corpo, new RegExp(`Resultado\\s*:?\\s*${N}`, 'i'));
+    } else if (h.startsWith('TEMPO DE PROTROMBINA')) {
+        val['Atividade'] = pegar(corpo, new RegExp(`Atividade\\s*:?\\s*${N}`, 'i'));
+        val['RNI'] = pegar(corpo, new RegExp(`RNI\\s*:?\\s*${N}`, 'i'));
+    } else if (h.startsWith('TEMPO DE TROMBOPLASTINA')) {
+        // rótulo real: "TTPA Segundos : 39,8 s" — não "Tempo (TTPA)"
+        val['Tempo (TTPA)'] = pegar(corpo, new RegExp(`TTPA\\s*Segundos\\s*:?\\s*${N}`, 'i'))
+            || pegar(corpo, new RegExp(`Tempo\\s*:?\\s*${N}`, 'i'));
+        val['Relação (Paciente/Normal)'] = pegar(corpo, new RegExp(`Rela[çc][ãa]o\\s*\\([^)]*\\)\\s*:?\\s*${N}`, 'i'))
+            || pegar(corpo, new RegExp(`Rela[çc][ãa]o\\s*:?\\s*${N}`, 'i'));
+    } else if (/BILIRRUBINAS?\s+TOTAIS/.test(h)) {
+        val['Bilirrubina total'] = pegar(corpo, new RegExp(`Bilirrubina Total\\s*:?\\s*${N}`, 'i'));
+        val['Bilirrubina Direta'] = pegar(corpo, new RegExp(`Bilirrubina Direta\\s*:?\\s*${N}`, 'i'));
+        val['Bilirrubina Indireta'] = pegar(corpo, new RegExp(`Bilirrubina Indireta\\s*:?\\s*${N}`, 'i'));
+    } else if (h.startsWith('ELETROFORESE')) {
+        // semi-quantitativa (%): não preenche Proteínas Totais / Albumina
+    } else if (/^PROTE[ÍI]NAS TOTAIS/.test(h)) {
+        val['Proteínas Totais'] = pegar(corpo, new RegExp(`Prote[íi]nas Totais\\s*:?\\s*${N}`, 'i'));
+        val['Albumina'] = pegar(corpo, new RegExp(`Albumina\\s*:?\\s*${N}`, 'i'));
+    } else if (/^FIBRINOG[ÊE]NIO/.test(h)) {
+        // a lista guarda a chave legada 'Fibrinogênio :' — mantida para não
+        // desalinhar os apelidos que o usuário já salvou no navegador
+        val['Fibrinogênio :'] = pegar(corpo, new RegExp(`Resultado\\s*:?\\s*${N}`, 'i'));
+    } else if (h.startsWith('DESIDROGENASE L')) {
+        val['DHL'] = pegar(corpo, new RegExp(`Resultado\\s*:?\\s*${N}`, 'i'));
+    } else if (h.startsWith('DOSAGEM DE')) {
+        const nome = h.replace(/^DOSAGEM DE\s+/, '').replace(RE_SUJEIRA_HEADER, '').trim();
+        if (/BILIRRUBINAS/.test(nome)) {
+            val['Bilirrubina total'] = pegar(corpo, new RegExp(`Bilirrubina Total\\s*:?\\s*${N}`, 'i'));
+            val['Bilirrubina Direta'] = pegar(corpo, new RegExp(`Bilirrubina Direta\\s*:?\\s*${N}`, 'i'));
+            val['Bilirrubina Indireta'] = pegar(corpo, new RegExp(`Bilirrubina Indireta\\s*:?\\s*${N}`, 'i'));
+        } else if (MAPA_DOSAGEM[nome]) {
+            val[MAPA_DOSAGEM[nome]] = pegar(corpo, new RegExp(`Resultado\\s*:?\\s*${N}`, 'i'));
+        } else {
+            tipo = 'desconhecida';   // analito novo do laboratório -> log
+        }
+    } else {
+        tipo = 'desconhecida';
+    }
+
+    const limpo = {};
+    for (const [k, v] of Object.entries(val)) if (v) limpo[k] = v;
+    return { val: limpo, tipo };
+}
+
+function fatiar(normalized) {
+    const secoes = [];
+    const marcas = [...normalized.matchAll(RE_SECAO)];
+    for (let i = 0; i < marcas.length; i++) {
+        const ini = marcas[i].index;
+        const fim = (i + 1 < marcas.length) ? marcas[i + 1].index : normalized.length;
+        secoes.push({
+            header: limparHeader(marcas[i][1]),
+            corpo: normalized.slice(ini, fim)
+        });
+    }
+    return secoes;
 }
 
 function processText(text) {
@@ -341,50 +607,125 @@ function processText(text) {
     const dataMatch = text.match(/Coletado\(([^)]+)\)/i);
     const coletaData = dataMatch ? dataMatch[1] : "Não encontrada";
 
-    const results = {};
     const normalized = text.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ');
-    const gasData = extractGasometriaData(normalized);
+    const secoes = fatiar(normalized);
 
-    EXAMES.forEach(exame => {
-        let valor = '';
-        if (exame === "pH") valor = gasData.pH;
-        else if (exame === "BE") valor = gasData.BE;
-        else if (exame === "Leucócitos") valor = extractLeucocitosBlock(normalized);
-        else if (exame === "Saturação de O2") {
-            const pattern = /Saturação\s+(?:de\s+O2|da\s+Hb)\s*[:]?\s*(-?[\d.,]+%?)/i;
-            const match = normalized.match(pattern);
-            if (match && match[1]) valor = match[1].trim().replace(/\s+/g, '');
-        } else {
-            const patterns = [
-                new RegExp(`${escapeRegex(exame)}\\s*[:]?\\s*(-?[\\d.,]+%?)`, 'i'),
-                new RegExp(`${escapeRegex(exame)}.*?Resultado\\s*[:]?\\s*(-?[\\d.,]+%?)`, 'i'),
-                new RegExp(`${escapeRegex(exame)}\\s+(-?[\\d.,]+%?)`, 'i')
-            ];
-            for (const pattern of patterns) {
-                const match = normalized.match(pattern);
-                if (match && match[1]) {
-                    valor = match[1].trim().replace(/\s+/g, '');
-                    break;
-                }
-            }
-        }
-        if (valor) results[exame] = formatValue(exame, valor);
-    });
+    const brutos = {};
+    const relatorio = [];      // uma linha por seção, alimenta o log
+    let temArterial = false, temVenosa = false;
 
+    for (const s of secoes) {
+        const { val, tipo } = parseSecao(s.header, s.corpo);
+        if (tipo === 'venosa') temVenosa = true;
+        if (/^GASOMETRIA ARTERIAL/i.test(s.header)) temArterial = true;
+        // primeira seção a preencher um campo ganha; repetição não sobrescreve
+        for (const [k, v] of Object.entries(val)) if (!(k in brutos)) brutos[k] = v;
+        let status = 'OK';
+        if (tipo === 'desconhecida') status = 'NAO_MAPEADO';
+        else if (tipo === 'analito' && Object.keys(val).length === 0) status = 'SEM_VALOR';
+        relatorio.push({ header: s.header, campos: Object.keys(val), status });
+    }
+
+    const results = {};
+    for (const [k, v] of Object.entries(brutos)) results[k] = formatValue(k, v);
+
+    // P/F — só com pO2 arterial. FiO2 abaixo de 20 é fluxo em L/min, não fração.
     if (results['pO2'] && results['FIO2']) {
-        let fio2Str = results['FIO2'];
-        let fio2Value = parseFloat(fio2Str.replace('%', '').replace(',', '.'));
+        const fio2Value = paraFloat(results['FIO2'].replace('%', ''));
         if (fio2Value < 20) {
             results['P/F'] = "";
-            results['FIO2'] = fio2Value.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + " L";
+            results['FIO2'] = `${Math.round(fio2Value)} L`;
         } else {
-            const pO2 = parseFloat(results['pO2'].replace(/\./g, '').replace(',', '.'));
-            const fio2Normalized = fio2Value / 100;
-            results['P/F'] = (pO2 / fio2Normalized).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+            const pO2 = paraFloat(results['pO2']);
+            results['P/F'] = (pO2 / (fio2Value / 100)).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
         }
     }
-    
-    return { results, pacienteNome, coletaData };
+
+    const avisos = [];
+    if (temVenosa && !temArterial) avisos.push('Este pedido tem apenas GASOMETRIA VENOSA. As linhas de gaso ficaram VAZIAS — transcreva à mão se for usar.');
+    else if (temVenosa) avisos.push('Há gasometria venosa neste pedido. As linhas de gaso mostram apenas a ARTERIAL.');
+    const semValor = relatorio.filter(r => r.status !== 'OK');
+    if (semValor.length) avisos.push(`${semValor.length} seção(ões) não lida(s) — veja o botão Log.`);
+
+    return { results, pacienteNome, coletaData, avisos, secoes: relatorio };
+}
+
+// --- LOG DE EXAMES NÃO RECONHECIDOS ---------------------------------------
+// Página estática, sem servidor: o log mora no localStorage do navegador e sai
+// em CSV. Guarda duas coisas — seção que o LabCopy não conhece (exame novo do
+// laboratório) e seção conhecida que não devolveu valor (regex quebrada).
+function lerLog() {
+    try { return JSON.parse(localStorage.getItem(CHAVE_LOG)) || {}; }
+    catch (e) { return {}; }
+}
+
+function registrarLog(arquivo, dados) {
+    const log = lerLog();
+    const agora = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    for (const s of dados.secoes) {
+        if (s.status === 'OK') continue;
+        const chave = `${s.status}|${s.header}`;
+        const e = log[chave] || { status: s.status, header: s.header, n: 0, primeira: agora, exemplos: [] };
+        e.n++;
+        e.ultima = agora;
+        if (e.exemplos.length < 5 && !e.exemplos.includes(arquivo)) e.exemplos.push(arquivo);
+        log[chave] = e;
+    }
+    try { localStorage.setItem(CHAVE_LOG, JSON.stringify(log)); }
+    catch (err) { /* cota estourada: log é acessório, nunca derruba a extração */ }
+}
+
+function atualizarBadgeLog() {
+    const n = Object.keys(lerLog()).length;
+    const badge = document.getElementById('logBadge');
+    badge.textContent = n;
+    badge.style.display = n ? 'inline-block' : 'none';
+}
+
+function abrirLog() {
+    const log = lerLog();
+    const linhas = Object.values(log).sort((a, b) => b.n - a.n);
+    const alvo = document.getElementById('logTabela');
+    if (!linhas.length) {
+        alvo.innerHTML = '<p style="text-align:center;color:#6c757d">Nada registrado. Todos os exames abertos até agora foram reconhecidos.</p>';
+    } else {
+        alvo.innerHTML = `<table style="font-size:13px">
+            <thead><tr><th>Seção no laudo</th><th>Situação</th><th>Vezes</th><th>Última</th><th>Exemplo de PDF</th></tr></thead>
+            <tbody>${linhas.map(l => `<tr>
+                <td>${escapeHtml(l.header)}</td>
+                <td style="color:${l.status === 'NAO_MAPEADO' ? '#dc3545' : '#e08e00'}">${l.status === 'NAO_MAPEADO' ? 'não está na lista' : 'na lista, sem valor'}</td>
+                <td style="text-align:center">${l.n}</td>
+                <td>${l.ultima || l.primeira}</td>
+                <td style="font-size:11px">${escapeHtml((l.exemplos || []).join(', '))}</td>
+            </tr>`).join('')}</tbody></table>`;
+    }
+    document.getElementById('logModal').style.display = 'flex';
+}
+
+function fecharLog() { document.getElementById('logModal').style.display = 'none'; }
+
+function baixarLog() {
+    const linhas = Object.values(lerLog()).sort((a, b) => b.n - a.n);
+    const csv = ['secao;situacao;vezes;primeira;ultima;exemplos']
+        .concat(linhas.map(l => [l.header, l.status, l.n, l.primeira, l.ultima || '', (l.exemplos || []).join(' ')]
+            .map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')))
+        .join('\r\n');
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `labcopy_log_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function limparLog() {
+    localStorage.removeItem(CHAVE_LOG);
+    atualizarBadgeLog();
+    abrirLog();
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
 // --- RENDERIZAÇÃO E UI ---
@@ -416,7 +757,20 @@ function renderActivePDFResults() {
 
     document.getElementById('pacienteNome').textContent = activeData.pacienteNome;
     document.getElementById('coletaData').textContent = activeData.coletaData;
+    renderAvisos(activeData.avisos || []);
     showResultsTable(activeData.results);
+}
+
+function renderAvisos(avisos) {
+    let box = document.getElementById('avisosBox');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'avisosBox';
+        document.querySelector('.header-info').appendChild(box);
+    }
+    box.innerHTML = avisos.map(a =>
+        `<p style="background:#fff3cd;border:1px solid #ffe08a;border-radius:6px;padding:8px 12px;margin:8px 0;font-size:13px;color:#7a5b00">⚠️ ${escapeHtml(a)}</p>`
+    ).join('');
 }
 
 function showResultsTable(results) {
@@ -427,7 +781,7 @@ function showResultsTable(results) {
             <td>${results[exame] || '-'}</td>
         </tr>
     `).join('');
-    
+
     document.querySelectorAll('.editable-apelido').forEach(cell => {
         cell.addEventListener('click', makeEditable);
     });
@@ -446,46 +800,10 @@ function resetApp() {
     toggleViews(false);
 }
 
-// --- FUNÇÕES DE EXTRAÇÃO AUXILIARES ---
-function extractGasometriaData(text) {
-    const match = text.match(/GASOMETRIA([\s\S]*?)Métodos : Potenciometria automatizada/i);
-    if (!match) return { pH: "", BE: "" };
-    const block = match[1];
-    const phMatch = block.match(/pH\s*[:\-]?\s*([\d.,]+)/i);
-    const beMatch = block.match(/BE\s*[:]\s*(-?\s*\d+(?:[.,]\d+)?)/i);
-    return {
-        pH: phMatch ? phMatch[1] : "",
-        BE: beMatch ? beMatch[1].replace(/\s/g, '') : ""
-    };
-}
-
-function extractLeucocitosBlock(text) {
-    const blockMatch = text.match(/SÉRIE LEUCOCITÁRIA([\s\S]*?)SÉRIE PLAQUETÁRIA/i);
-    if (!blockMatch) return "";
-    const leucMatch = blockMatch[1].match(/Leucócitos\s*[:\-]?\s*([\d.,]+)/i);
-    return (leucMatch && leucMatch[1]) ? leucMatch[1].trim() : "";
-}
-
-function escapeRegex(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-}
-
-function formatValue(exame, value) {
-    const examesComPorcentagem = ['Saturação de O2', 'Hematócrito', 'Bastonetes', 'Mielócitos', 'Metamielócitos', 'FIO2', 'Atividade'];
-    if (examesComPorcentagem.includes(exame)) {
-        return `${value.replace(/[^-\d,]/g, '').replace(',', '.')}%`;
-    }
-    let cleanedValue = value.replace(/[^-\d,]/g, '').replace(/\./g, '').replace(',', '.');
-    if (['Plaquetas', 'Leucócitos'].includes(exame)) {
-        return (parseFloat(cleanedValue) * 1000).toLocaleString('pt-BR');
-    }
-    return parseFloat(cleanedValue).toLocaleString('pt-BR', { minimumFractionDigits: value.includes(',') ? 2 : 0 });
-}
-
 // --- FUNÇÕES DE INTERAÇÃO (copiar, modal, etc.) ---
 function copyExcel() {
     const data = Array.from(document.querySelectorAll('#resultsBody td:nth-child(2)'))
-        .map(td => td.textContent === '-' ? '' : td.textContent.replace('.', '.'))
+        .map(td => td.textContent === '-' ? '' : td.textContent)
         .join('\n');
     copyToClipboard(data, '✅ Dados copiados para Excel!');
 }
@@ -494,7 +812,7 @@ function openChecklist() {
     const modal = document.getElementById('copyModal');
     const checklist = document.getElementById('checklist');
     const activeResults = pdfDataStore[activeTabIndex]?.results || {};
-    
+
     const checkboxes = EXAMES.map((exame, index) => {
         if (activeResults[exame] && activeResults[exame] !== '-') {
             return `<label><input type="checkbox" value="${index}" checked> ${apelidosAtuais[index]}</label>`;
@@ -514,7 +832,7 @@ function openChecklist() {
 function copySelected() {
     const selectedIndexes = Array.from(document.querySelectorAll('#checklist input:checked')).map(input => parseInt(input.value));
     const activeData = pdfDataStore[activeTabIndex];
-    
+
     const selectedValues = selectedIndexes.map(index => {
         const exame = EXAMES[index];
         const apelido = apelidosAtuais[index];
@@ -576,8 +894,11 @@ function saveCustomizations() {
 
 function loadCustomizations() {
     try {
-        const saved = localStorage.getItem('apelidosPersonalizados');
-        if (saved) apelidosAtuais = JSON.parse(saved);
+        const saved = JSON.parse(localStorage.getItem('apelidosPersonalizados'));
+        if (Array.isArray(saved)) {
+            // completa com o padrão: lista salva de uma versão antiga é mais curta
+            apelidosAtuais = APELIDOS_PADRAO.map((p, i) => saved[i] || p);
+        }
     } catch (e) {
         apelidosAtuais = [...APELIDOS_PADRAO];
     }
