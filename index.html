@@ -262,7 +262,8 @@
    quebrava de três jeitos, todos confirmados em 189 laudos reais do HUGO:
      1. o quadro "Evolução do paciente" (valores de coletas ANTERIORES) casava
         antes do resultado real -> Hb/Ht/Plaquetas de outro dia, sem aviso;
-     2. gasometria arterial e venosa se misturavam no mesmo pedido;
+     2. gasometria arterial e venosa se misturavam sem critério (o pH vinha
+        de uma, a saturação da outra);
      3. "14.0 mg/dL" virava 140 (o ponto era apagado como separador de milhar).
    Agora o texto é fatiado por cabeçalho, cada exame só é procurado dentro da
    sua própria seção, e o que sobra vai para o log de não reconhecidos.
@@ -402,7 +403,7 @@ async function processPDF(file) {
         return { name: file.name, ...processedText };
     } catch (error) {
         showError(`Erro ao processar ${file.name}: ${error.message}`);
-        return { name: file.name, results: {}, pacienteNome: "Erro", coletaData: "Erro", avisos: [], secoes: [] };
+        return { name: file.name, results: {}, pacienteNome: "Erro", coletaData: "Erro", secoes: [] };
     }
 }
 
@@ -505,8 +506,20 @@ function parseSecao(header, corpo) {
     corpo = limparCorpo(corpo);
 
     if (h.startsWith('GASOMETRIA VENOSA')) {
-        // Lida, mas NÃO preenche as linhas arteriais. Vira aviso na tela.
-        return { val: {}, tipo: 'venosa' };
+        // Preenche as MESMAS linhas da arterial. Quando o pedido traz as duas,
+        // a venosa é a que vale (decisão de uso, ver processText).
+        val['pH'] = pegar(corpo, new RegExp(`pH\\s*:?\\s*${N}`, 'i'));
+        val['pCO2'] = pegar(corpo, new RegExp(`pCO2\\s*:?\\s*${N}`, 'i'));
+        val['pO2'] = pegar(corpo, new RegExp(`pO2\\s*:?\\s*${N}`, 'i'));
+        val['BE'] = numSinal(pegar(corpo, new RegExp(`\\bBE\\s*:?\\s*${N_SINAL}`, 'i')));
+        val['HCO3'] = pegar(corpo, new RegExp(`HCO3\\s*:?\\s*${N}`, 'i'));
+        // na venosa o rotulo da saturacao e "Saturacao da Hb", nao "Saturacao de O2"
+        val['Saturação de O2'] = pegar(corpo, new RegExp(`Satura[çc][ãa]o da Hb\\s*:?\\s*${N}`, 'i'));
+        val['Lactato'] = pegar(corpo, new RegExp(`Lactato\\s*:?\\s*${N}`, 'i'));
+        val['FIO2'] = pegar(corpo, new RegExp(`FiO2\\s*:?\\s*${N}`, 'i'));
+        const limpoVen = {};
+        for (const [k, v] of Object.entries(val)) if (v) limpoVen[k] = v;
+        return { val: limpoVen, tipo: 'venosa' };
     }
     // Cultura, urina, sorologia, painel molecular: resultado é texto, não tem
     // linha na planilha. Reconhecidas de propósito, para não poluírem o log.
@@ -611,20 +624,21 @@ function processText(text) {
     const secoes = fatiar(normalized);
 
     const brutos = {};
+    const venosos = {};        // gaso venosa, aplicada por último (tem prioridade)
     const relatorio = [];      // uma linha por seção, alimenta o log
-    let temArterial = false, temVenosa = false;
 
     for (const s of secoes) {
         const { val, tipo } = parseSecao(s.header, s.corpo);
-        if (tipo === 'venosa') temVenosa = true;
-        if (/^GASOMETRIA ARTERIAL/i.test(s.header)) temArterial = true;
+        const alvo = (tipo === 'venosa') ? venosos : brutos;
         // primeira seção a preencher um campo ganha; repetição não sobrescreve
-        for (const [k, v] of Object.entries(val)) if (!(k in brutos)) brutos[k] = v;
+        for (const [k, v] of Object.entries(val)) if (!(k in alvo)) alvo[k] = v;
         let status = 'OK';
         if (tipo === 'desconhecida') status = 'NAO_MAPEADO';
         else if (tipo === 'analito' && Object.keys(val).length === 0) status = 'SEM_VALOR';
         relatorio.push({ header: s.header, campos: Object.keys(val), status });
     }
+    // Havendo as duas gasometrias no pedido, a venosa é a que fica.
+    Object.assign(brutos, venosos);
 
     const results = {};
     for (const [k, v] of Object.entries(brutos)) results[k] = formatValue(k, v);
@@ -641,13 +655,7 @@ function processText(text) {
         }
     }
 
-    const avisos = [];
-    if (temVenosa && !temArterial) avisos.push('Este pedido tem apenas GASOMETRIA VENOSA. As linhas de gaso ficaram VAZIAS — transcreva à mão se for usar.');
-    else if (temVenosa) avisos.push('Há gasometria venosa neste pedido. As linhas de gaso mostram apenas a ARTERIAL.');
-    const semValor = relatorio.filter(r => r.status !== 'OK');
-    if (semValor.length) avisos.push(`${semValor.length} seção(ões) não lida(s) — veja o botão Log.`);
-
-    return { results, pacienteNome, coletaData, avisos, secoes: relatorio };
+    return { results, pacienteNome, coletaData, secoes: relatorio };
 }
 
 // --- LOG DE EXAMES NÃO RECONHECIDOS ---------------------------------------
@@ -757,20 +765,7 @@ function renderActivePDFResults() {
 
     document.getElementById('pacienteNome').textContent = activeData.pacienteNome;
     document.getElementById('coletaData').textContent = activeData.coletaData;
-    renderAvisos(activeData.avisos || []);
     showResultsTable(activeData.results);
-}
-
-function renderAvisos(avisos) {
-    let box = document.getElementById('avisosBox');
-    if (!box) {
-        box = document.createElement('div');
-        box.id = 'avisosBox';
-        document.querySelector('.header-info').appendChild(box);
-    }
-    box.innerHTML = avisos.map(a =>
-        `<p style="background:#fff3cd;border:1px solid #ffe08a;border-radius:6px;padding:8px 12px;margin:8px 0;font-size:13px;color:#7a5b00">⚠️ ${escapeHtml(a)}</p>`
-    ).join('');
 }
 
 function showResultsTable(results) {
