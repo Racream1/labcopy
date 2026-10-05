@@ -498,6 +498,20 @@ function limparCorpo(corpo) {
 // urina, sorologia): resultado é texto. Não é erro — não deve poluir o log.
 const SECOES_SEM_LINHA = /^(CULTURA|HEMOCULTURA|BACTERIOSC|ELEMENTOS ANORMAIS|PESQUISA|PAINEL MOLECULAR|CITOL[ÓO]GICO|CONCENTRA[ÇC][ÃA]O INIBIT|TESTE MOLECULAR|SARS-COV-2|ELETROFORESE)/i;
 
+// Mesmos rótulos na arterial e na venosa.
+function lerGaso(corpo) {
+    const val = {};
+    val['pH'] = pegar(corpo, new RegExp(`pH\\s*:?\\s*${N}`, 'i'));
+    val['pCO2'] = pegar(corpo, new RegExp(`pCO2\\s*:?\\s*${N}`, 'i'));
+    val['pO2'] = pegar(corpo, new RegExp(`pO2\\s*:?\\s*${N}`, 'i'));
+    val['BE'] = numSinal(pegar(corpo, new RegExp(`\\bBE\\s*:?\\s*${N_SINAL}`, 'i')));
+    val['HCO3'] = pegar(corpo, new RegExp(`HCO3\\s*:?\\s*${N}`, 'i'));
+    val['Saturação de O2'] = pegar(corpo, new RegExp(`Satura[çc][ãa]o de O2\\s*:?\\s*${N}`, 'i'));
+    val['Lactato'] = pegar(corpo, new RegExp(`Lactato\\s*:?\\s*${N}`, 'i'));
+    val['FIO2'] = pegar(corpo, new RegExp(`FiO2\\s*:?\\s*${N}`, 'i'));
+    return val;
+}
+
 function parseSecao(header, corpo) {
     const h = header.toUpperCase();
     const val = {};
@@ -505,21 +519,15 @@ function parseSecao(header, corpo) {
     corpo = limparCorpo(corpo);
 
     if (h.startsWith('GASOMETRIA VENOSA')) {
-        // Lida, mas NÃO preenche as linhas arteriais. Vira aviso na tela.
-        return { val: {}, tipo: 'venosa' };
+        // Lida à parte: só vai para as linhas de gaso se o pedido não tiver
+        // arterial (ver processText). Nunca entra no P/F.
+        return { val: lerGaso(corpo), tipo: 'venosa' };
     }
     // Cultura, urina, sorologia, painel molecular: resultado é texto, não tem
     // linha na planilha. Reconhecidas de propósito, para não poluírem o log.
     if (SECOES_SEM_LINHA.test(h)) return { val: {}, tipo: 'ignorada' };
     if (h.startsWith('GASOMETRIA')) {
-        val['pH'] = pegar(corpo, new RegExp(`pH\\s*:?\\s*${N}`, 'i'));
-        val['pCO2'] = pegar(corpo, new RegExp(`pCO2\\s*:?\\s*${N}`, 'i'));
-        val['pO2'] = pegar(corpo, new RegExp(`pO2\\s*:?\\s*${N}`, 'i'));
-        val['BE'] = numSinal(pegar(corpo, new RegExp(`\\bBE\\s*:?\\s*${N_SINAL}`, 'i')));
-        val['HCO3'] = pegar(corpo, new RegExp(`HCO3\\s*:?\\s*${N}`, 'i'));
-        val['Saturação de O2'] = pegar(corpo, new RegExp(`Satura[çc][ãa]o de O2\\s*:?\\s*${N}`, 'i'));
-        val['Lactato'] = pegar(corpo, new RegExp(`Lactato\\s*:?\\s*${N}`, 'i'));
-        val['FIO2'] = pegar(corpo, new RegExp(`FiO2\\s*:?\\s*${N}`, 'i'));
+        Object.assign(val, lerGaso(corpo));
     } else if (h.startsWith('HEMOGRAMA')) {
         val['Hemoglobina'] = pegar(corpo, new RegExp(`Hemoglobina\\s*:?\\s*${N}`, 'i'));
         val['Hematócrito'] = pegar(corpo, new RegExp(`Hemat[óo]crito\\s*:?\\s*${N}`, 'i'));
@@ -612,38 +620,46 @@ function processText(text) {
 
     const brutos = {};
     const relatorio = [];      // uma linha por seção, alimenta o log
+    const venosa = {};         // só entra se não houver arterial
     let temArterial = false, temVenosa = false;
 
     for (const s of secoes) {
         const { val, tipo } = parseSecao(s.header, s.corpo);
-        if (tipo === 'venosa') temVenosa = true;
         if (/^GASOMETRIA ARTERIAL/i.test(s.header)) temArterial = true;
         // primeira seção a preencher um campo ganha; repetição não sobrescreve
-        for (const [k, v] of Object.entries(val)) if (!(k in brutos)) brutos[k] = v;
+        const destino = (tipo === 'venosa') ? venosa : brutos;
+        if (tipo === 'venosa') temVenosa = true;
+        for (const [k, v] of Object.entries(val)) if (v && !(k in destino)) destino[k] = v;
         let status = 'OK';
         if (tipo === 'desconhecida') status = 'NAO_MAPEADO';
         else if (tipo === 'analito' && Object.keys(val).length === 0) status = 'SEM_VALOR';
         relatorio.push({ header: s.header, campos: Object.keys(val), status });
     }
 
+    // Sem arterial, a venosa ocupa as linhas de gaso (sem sobrescrever, p.ex.,
+    // um lactato que veio de seção própria).
+    const usouVenosa = !temArterial && Object.keys(venosa).length > 0;
+    if (usouVenosa) for (const [k, v] of Object.entries(venosa)) if (!(k in brutos)) brutos[k] = v;
+
     const results = {};
     for (const [k, v] of Object.entries(brutos)) results[k] = formatValue(k, v);
 
-    // P/F — só com pO2 arterial. FiO2 abaixo de 20 é fluxo em L/min, não fração.
-    if (results['pO2'] && results['FIO2']) {
+    // FiO2 abaixo de 20 é fluxo em L/min, não fração.
+    // P/F — só com pO2 arterial; pO2 venosa não serve.
+    if (results['FIO2']) {
         const fio2Value = paraFloat(results['FIO2'].replace('%', ''));
         if (fio2Value < 20) {
             results['P/F'] = "";
             results['FIO2'] = `${Math.round(fio2Value)} L`;
-        } else {
+        } else if (results['pO2'] && !usouVenosa) {
             const pO2 = paraFloat(results['pO2']);
             results['P/F'] = (pO2 / (fio2Value / 100)).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
         }
     }
 
     const avisos = [];
-    if (temVenosa && !temArterial) avisos.push('Este pedido tem apenas GASOMETRIA VENOSA. As linhas de gaso ficaram VAZIAS — transcreva à mão se for usar.');
-    else if (temVenosa) avisos.push('Há gasometria venosa neste pedido. As linhas de gaso mostram apenas a ARTERIAL.');
+    if (usouVenosa) avisos.push('Este pedido tem apenas GASOMETRIA VENOSA. As linhas de gaso mostram a VENOSA (P/F não calculado).');
+    else if (temVenosa && temArterial) avisos.push('Há gasometria venosa neste pedido. As linhas de gaso mostram apenas a ARTERIAL.');
     const semValor = relatorio.filter(r => r.status !== 'OK');
     if (semValor.length) avisos.push(`${semValor.length} seção(ões) não lida(s) — veja o botão Log.`);
 
